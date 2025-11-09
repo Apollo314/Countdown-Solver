@@ -1,3 +1,4 @@
+use rustc_hash::FxHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::{
@@ -222,7 +223,7 @@ fn get_res(
 fn get_new_numbers(
     i1: usize,
     i2: usize,
-    operation: Operation,
+    operation: Rc<Operation>,
     numbers: &[Number],
     target: i32,
     scoreboard: &mut Scoreboard,
@@ -232,7 +233,7 @@ fn get_new_numbers(
     let num_depth = operation.operands.0.depth + operation.operands.1.depth + 1;
     let num = Number {
         value: res,
-        op: Some(Rc::new(operation)),
+        op: Some(operation),
         depth: num_depth,
     };
     if depth == num_depth {
@@ -257,22 +258,31 @@ fn get_new_numbers(
 
 pub fn _solve(
     target: i32,
-    numbers: Vec<Number>,
+    numbers: Rc<Vec<Number>>,
     scoreboard: &mut Scoreboard,
     depth: i32,
-    visited: &mut HashSet<Vec<i32>>,
+    visited: &mut HashSet<u64>,
 ) {
-    let mut key = numbers.iter().map(|n| n.value).collect::<Vec<_>>();
-    key.sort_unstable();
+    let key = numbers
+        .iter()
+        .map(|num| {
+            let mut s = FxHasher::default();
+            num.hash(&mut s);
+            s.finish()
+        })
+        .reduce(|acc, hash| acc.wrapping_mul(hash))
+        .unwrap_or(0);
 
     if !visited.insert(key) {
         return;
     }
+
     // if it just so happens that one of the numbers is the target.
     if depth == 0 {
-        for num in &numbers {
+        for num in numbers.iter() {
             if num.value == target {
                 scoreboard.entry(0).or_default().insert(num.clone());
+                return;
             }
         }
     }
@@ -291,18 +301,19 @@ pub fn _solve(
                 {
                     continue;
                 }
-                let new_numbers = get_new_numbers(
+                let operation = Rc::new(Operation {
+                    operator,
+                    operands: (n1.clone(), n2.clone()),
+                });
+                let new_numbers = Rc::new(get_new_numbers(
                     i1,
                     i2,
-                    Operation {
-                        operator,
-                        operands: (n1.clone(), n2.clone()),
-                    },
+                    operation.clone(),
                     &numbers,
                     target,
                     scoreboard,
                     depth + 1,
-                );
+                ));
                 _solve(target, new_numbers, scoreboard, depth + 1, visited);
             }
         }
@@ -311,14 +322,16 @@ pub fn _solve(
 
 pub fn solve(target: i32, numbers: Vec<i32>) -> Scoreboard {
     let mut scoreboard = Scoreboard::new();
-    let numbers = numbers
-        .iter()
-        .map(|num| Number {
-            value: *num,
-            op: None,
-            depth: 0,
-        })
-        .collect();
+    let numbers = Rc::new(
+        numbers
+            .iter()
+            .map(|num| Number {
+                value: *num,
+                op: None,
+                depth: 0,
+            })
+            .collect(),
+    );
     let mut visited = HashSet::new();
     _solve(target, numbers, &mut scoreboard, 0, &mut visited);
     scoreboard
