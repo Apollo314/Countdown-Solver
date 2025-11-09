@@ -10,8 +10,14 @@ pub struct Args {
     #[arg(short, long, required = true)]
     target: i32,
 
-    #[arg(short, long, required = false, default_value_t = DisplayFormat::Tree, ignore_case = true)]
-    display_format: DisplayFormat,
+    #[arg(
+        short = 'l',
+        long,
+        required = false,
+        default_value_t = false,
+        help = "display results as list of operations instead of their tree structure"
+    )]
+    list: bool,
 
     #[arg(short, long, required = false, default_value_t = 5)]
     max_displayed_solution: usize,
@@ -52,13 +58,10 @@ fn main() {
         show_max
     );
     for j in (0..show_max).rev() {
-        match args.display_format {
-            DisplayFormat::Tree => {
-                println!("{}\n", solutions[j].as_tree());
-            }
-            DisplayFormat::List => {
-                println!("{}\n", solutions[j].as_list());
-            }
+        if args.list {
+            println!("{}\n", solutions[j].as_list());
+        } else {
+            println!("{}\n", solutions[j].as_tree());
         }
     }
 }
