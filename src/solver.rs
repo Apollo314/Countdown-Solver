@@ -1,4 +1,5 @@
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 use std::{
     collections::{BTreeMap, HashSet},
     fmt::{Debug, Display},
@@ -21,7 +22,7 @@ pub struct Operation {
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Number {
     pub value: i32,
-    op: Option<Box<Operation>>,
+    op: Option<Rc<Operation>>,
     pub depth: i32,
 }
 
@@ -234,10 +235,6 @@ impl Debug for Number {
     }
 }
 
-fn distance(target: i32, result: i32) -> i32 {
-    (target - result).abs()
-}
-
 fn get_res(operation: &Operation) -> i32 {
     match operation.operator {
         Operator::Add => operation.operands.0.value + operation.operands.1.value,
@@ -251,7 +248,7 @@ fn get_new_numbers(
     i1: usize,
     i2: usize,
     operation: Operation,
-    numbers: Vec<Number>,
+    numbers: &[Number],
     target: i32,
     scoreboard: &mut Scoreboard,
     depth: i32,
@@ -260,11 +257,11 @@ fn get_new_numbers(
     let num_depth = operation.operands.0.depth + operation.operands.1.depth + 1;
     let num = Number {
         value: res,
-        op: Some(Box::new(operation)),
+        op: Some(Rc::new(operation)),
         depth: num_depth,
     };
     if depth == num_depth {
-        let score = distance(target, res);
+        let score = (target - res).abs();
         let solutions = scoreboard.entry(score).or_default();
         solutions.insert(num.clone());
     }
@@ -283,7 +280,19 @@ fn get_new_numbers(
     new_numbers
 }
 
-pub fn _solve(target: i32, numbers: Vec<Number>, scoreboard: &mut Scoreboard, depth: i32) {
+pub fn _solve(
+    target: i32,
+    numbers: Vec<Number>,
+    scoreboard: &mut Scoreboard,
+    depth: i32,
+    visited: &mut HashSet<Vec<i32>>,
+) {
+    let mut key = numbers.iter().map(|n| n.value).collect::<Vec<_>>();
+    key.sort_unstable();
+
+    if !visited.insert(key) {
+        return;
+    }
     // if it just so happens that one of the numbers is the target.
     if depth == 0 {
         for num in &numbers {
@@ -294,7 +303,7 @@ pub fn _solve(target: i32, numbers: Vec<Number>, scoreboard: &mut Scoreboard, de
     }
     for (i1, n1) in numbers.iter().enumerate() {
         let num1 = n1.value;
-        for (i2, n2) in (i1 + 1..).zip(numbers[i1 + 1..].iter()) {
+        for (i2, n2) in numbers.iter().enumerate().skip(i1 + 1) {
             let num2 = n2.value;
             let new_numbers = get_new_numbers(
                 i1,
@@ -303,12 +312,12 @@ pub fn _solve(target: i32, numbers: Vec<Number>, scoreboard: &mut Scoreboard, de
                     operator: Operator::Add,
                     operands: (n1.clone(), n2.clone()),
                 },
-                numbers.clone(),
+                &numbers,
                 target,
                 scoreboard,
                 depth + 1,
             );
-            _solve(target, new_numbers, scoreboard, depth + 1);
+            _solve(target, new_numbers, scoreboard, depth + 1, visited);
             if num1 != 1 && num2 != 1 {
                 let new_numbers = get_new_numbers(
                     i1,
@@ -317,12 +326,12 @@ pub fn _solve(target: i32, numbers: Vec<Number>, scoreboard: &mut Scoreboard, de
                         operator: Operator::Mul,
                         operands: (n1.clone(), n2.clone()),
                     },
-                    numbers.clone(),
+                    &numbers,
                     target,
                     scoreboard,
                     depth + 1,
                 );
-                _solve(target, new_numbers, scoreboard, depth + 1);
+                _solve(target, new_numbers, scoreboard, depth + 1, visited);
             }
             if num1 >= num2 && num1 % num2 == 0 && num2 != 0 && num2 != 1 {
                 let new_numbers = get_new_numbers(
@@ -332,12 +341,12 @@ pub fn _solve(target: i32, numbers: Vec<Number>, scoreboard: &mut Scoreboard, de
                         operator: Operator::Div,
                         operands: (n1.clone(), n2.clone()),
                     },
-                    numbers.clone(),
+                    &numbers,
                     target,
                     scoreboard,
                     depth + 1,
                 );
-                _solve(target, new_numbers, scoreboard, depth + 1);
+                _solve(target, new_numbers, scoreboard, depth + 1, visited);
             } else if num2 > num1 && num2 % num1 == 0 && num1 != 0 && num1 != 1 {
                 let new_numbers = get_new_numbers(
                     i1,
@@ -346,12 +355,12 @@ pub fn _solve(target: i32, numbers: Vec<Number>, scoreboard: &mut Scoreboard, de
                         operator: Operator::Div,
                         operands: (n2.clone(), n1.clone()),
                     },
-                    numbers.clone(),
+                    &numbers,
                     target,
                     scoreboard,
                     depth + 1,
                 );
-                _solve(target, new_numbers, scoreboard, depth + 1);
+                _solve(target, new_numbers, scoreboard, depth + 1, visited);
             }
             if num1 > num2 {
                 let new_numbers = get_new_numbers(
@@ -361,12 +370,12 @@ pub fn _solve(target: i32, numbers: Vec<Number>, scoreboard: &mut Scoreboard, de
                         operator: Operator::Sub,
                         operands: (n1.clone(), n2.clone()),
                     },
-                    numbers.clone(),
+                    &numbers,
                     target,
                     scoreboard,
                     depth + 1,
                 );
-                _solve(target, new_numbers, scoreboard, depth + 1);
+                _solve(target, new_numbers, scoreboard, depth + 1, visited);
             } else if num2 > num1 {
                 let new_numbers = get_new_numbers(
                     i1,
@@ -375,12 +384,12 @@ pub fn _solve(target: i32, numbers: Vec<Number>, scoreboard: &mut Scoreboard, de
                         operator: Operator::Sub,
                         operands: (n2.clone(), n1.clone()),
                     },
-                    numbers.clone(),
+                    &numbers,
                     target,
                     scoreboard,
                     depth + 1,
                 );
-                _solve(target, new_numbers, scoreboard, depth + 1);
+                _solve(target, new_numbers, scoreboard, depth + 1, visited);
             }
         }
     }
@@ -396,6 +405,7 @@ pub fn solve(target: i32, numbers: Vec<i32>) -> Scoreboard {
             depth: 0,
         })
         .collect();
-    _solve(target, numbers, &mut scoreboard, 0);
+    let mut visited = HashSet::new();
+    _solve(target, numbers, &mut scoreboard, 0, &mut visited);
     scoreboard
 }
