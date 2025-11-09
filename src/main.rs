@@ -39,25 +39,25 @@ impl Display for DisplayFormat {
 fn main() {
     let args = Args::parse();
     let mut scoreboard = solver::solve(args.target, args.numbers);
-    let solutions = scoreboard
+    let (distance, solutions) = scoreboard
         .iter_mut()
         .next()
         .expect("there seems to be no solution");
-    solutions.1.sort_by_key(|num| num.depth);
-    let show_max = args.max_displayed_solution.min(solutions.1.len());
+    let mut solutions = solutions.iter().collect::<Vec<_>>();
+    solutions.sort_by_key(|num| num.depth);
+    let show_max = args.max_displayed_solution.min(solutions.len());
     println!(
-        "for distance of {}, there are {} solutions, here are {}:",
-        solutions.0,
-        solutions.1.len(),
+        "for distance of {distance}, there are {} solutions, here are {}:",
+        solutions.len(),
         show_max
     );
     for j in (0..show_max).rev() {
         match args.display_format {
             DisplayFormat::Tree => {
-                println!("{}", solutions.1[j].as_tree());
+                println!("{}", solutions[j].as_tree());
             }
             DisplayFormat::List => {
-                println!("{}", solutions.1[j].as_list());
+                println!("{}", solutions[j].as_list());
             }
         }
     }

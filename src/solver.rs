@@ -1,9 +1,10 @@
+use std::hash::{Hash, Hasher};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fmt::{Debug, Display},
 };
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Operator {
     Add,
     Sub,
@@ -11,18 +12,83 @@ pub enum Operator {
     Div,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct Operation {
     operator: Operator,
     operands: (Number, Number),
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Number {
     pub value: i32,
     op: Option<Box<Operation>>,
     pub depth: i32,
 }
+
+impl Eq for Operation {}
+
+impl PartialEq for Operation {
+    fn eq(&self, other: &Self) -> bool {
+        match &self.operator {
+            Operator::Add => {
+                let (op11, op12) = &self.operands;
+                let (op21, op22) = &other.operands;
+                (op11 == op21 || op11 == op22)
+                    && (op11.value + op12.value == op21.value + op22.value)
+            }
+            Operator::Mul => {
+                let (op11, op12) = &self.operands;
+                let (op21, op22) = &other.operands;
+                (op11 == op21 || op11 == op22)
+                    && (op11.value * op12.value == op21.value * op22.value)
+            }
+            Operator::Sub => {
+                let (op11, op12) = &self.operands;
+                let (op21, op22) = &other.operands;
+                (op11 == op21) && (op12 == op22)
+            }
+            Operator::Div => {
+                let (op11, op12) = &self.operands;
+                let (op21, op22) = &other.operands;
+                (op11 == op21) && (op12 == op22)
+            }
+        }
+    }
+}
+
+impl Hash for Operation {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.operator.hash(state);
+
+        let (left, right) = &self.operands;
+
+        match self.operator {
+            Operator::Add | Operator::Mul => {
+                let mut h1 = std::collections::hash_map::DefaultHasher::new();
+                let mut h2 = std::collections::hash_map::DefaultHasher::new();
+
+                left.hash(&mut h1);
+                right.hash(&mut h2);
+
+                let (a, b) = (h1.finish(), h2.finish());
+
+                if a < b {
+                    a.hash(state);
+                    b.hash(state);
+                } else {
+                    b.hash(state);
+                    a.hash(state);
+                }
+            }
+            Operator::Sub | Operator::Div => {
+                left.hash(state);
+                right.hash(state);
+            }
+        }
+    }
+}
+
+pub type Scoreboard = BTreeMap<i32, HashSet<Number>>;
 
 impl Display for Operator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -180,7 +246,7 @@ fn get_new_numbers(
     operation: Operation,
     numbers: Vec<Number>,
     target: i32,
-    scoreboard: &mut BTreeMap<i32, Vec<Number>>,
+    scoreboard: &mut Scoreboard,
     depth: i32,
 ) -> Vec<Number> {
     let res = get_res(&operation);
@@ -193,7 +259,7 @@ fn get_new_numbers(
     if depth == num_depth {
         let score = distance(target, res);
         let solutions = scoreboard.entry(score).or_default();
-        solutions.push(num.clone());
+        solutions.insert(num.clone());
     }
     let mut new_numbers = numbers
         .iter()
@@ -210,17 +276,12 @@ fn get_new_numbers(
     new_numbers
 }
 
-pub fn _solve(
-    target: i32,
-    numbers: Vec<Number>,
-    scoreboard: &mut BTreeMap<i32, Vec<Number>>,
-    depth: i32,
-) {
+pub fn _solve(target: i32, numbers: Vec<Number>, scoreboard: &mut Scoreboard, depth: i32) {
     // if it just so happens that one of the numbers is the target.
     if depth == 0 {
         for num in &numbers {
             if num.value == target {
-                scoreboard.entry(0).or_default().push(num.clone());
+                scoreboard.entry(0).or_default().insert(num.clone());
             }
         }
     }
@@ -318,8 +379,8 @@ pub fn _solve(
     }
 }
 
-pub fn solve(target: i32, numbers: Vec<i32>) -> BTreeMap<i32, Vec<Number>> {
-    let mut scoreboard = BTreeMap::new();
+pub fn solve(target: i32, numbers: Vec<i32>) -> Scoreboard {
+    let mut scoreboard = Scoreboard::new();
     let numbers = numbers
         .iter()
         .map(|num| Number {
