@@ -5,7 +5,7 @@ use std::{
     fmt::{Debug, Display},
 };
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Operator {
     Add,
     Sub,
@@ -30,29 +30,13 @@ impl Eq for Operation {}
 
 impl PartialEq for Operation {
     fn eq(&self, other: &Self) -> bool {
-        match &self.operator {
-            Operator::Add => {
-                let (op11, op12) = &self.operands;
-                let (op21, op22) = &other.operands;
-                (op11 == op21 || op11 == op22)
-                    && (op11.value + op12.value == op21.value + op22.value)
-            }
-            Operator::Mul => {
-                let (op11, op12) = &self.operands;
-                let (op21, op22) = &other.operands;
-                (op11 == op21 || op11 == op22)
-                    && (op11.value * op12.value == op21.value * op22.value)
-            }
-            Operator::Sub => {
-                let (op11, op12) = &self.operands;
-                let (op21, op22) = &other.operands;
-                (op11 == op21) && (op12 == op22)
-            }
-            Operator::Div => {
-                let (op11, op12) = &self.operands;
-                let (op21, op22) = &other.operands;
-                (op11 == op21) && (op12 == op22)
-            }
+        let a1 = &self.operands.0;
+        let a2 = &self.operands.1;
+        let b1 = &other.operands.0;
+        let b2 = &other.operands.1;
+        match self.operator {
+            Operator::Add | Operator::Mul => (a1 == b1 && a2 == b2) || (a1 == b2 && a2 == b1),
+            Operator::Sub | Operator::Div => a1 == b1 && a2 == b2,
         }
     }
 }
@@ -65,20 +49,12 @@ impl Hash for Operation {
 
         match self.operator {
             Operator::Add | Operator::Mul => {
-                let mut h1 = std::collections::hash_map::DefaultHasher::new();
-                let mut h2 = std::collections::hash_map::DefaultHasher::new();
-
-                left.hash(&mut h1);
-                right.hash(&mut h2);
-
-                let (a, b) = (h1.finish(), h2.finish());
-
-                if a < b {
-                    a.hash(state);
-                    b.hash(state);
+                if left.value < right.value {
+                    left.hash(state);
+                    right.hash(state);
                 } else {
-                    b.hash(state);
-                    a.hash(state);
+                    right.hash(state);
+                    left.hash(state);
                 }
             }
             Operator::Sub | Operator::Div => {
@@ -119,113 +95,107 @@ impl Debug for Operation {
 use std::fmt;
 
 impl Number {
-    fn _as_tree(&self) -> (Vec<String>, usize) {
-        if self.op.is_none() {
-            return (vec![format!("{}", self.value)], 0);
-        }
-
-        let op = self.op.as_ref().unwrap();
-        let (left, right) = (&op.operands.0, &op.operands.1);
-        let op_sym = format!("{}", &op.operator).chars().nth(0).unwrap();
-
-        let (left_lines, left_mid) = left._as_tree();
-        let (right_lines, right_mid) = right._as_tree();
-
-        let left_width = left_lines
-            .iter()
-            .map(|s| s.chars().count())
-            .max()
-            .unwrap_or(0);
-        let right_width = right_lines
-            .iter()
-            .map(|s| s.chars().count())
-            .max()
-            .unwrap_or(0);
-        let gap = 6;
-        let total_width = left_width + gap + right_width;
-
-        let root = format!("{}", self.value);
-
-        let right_mid = right_mid + gap + left_width;
-        let center = (left_mid + right_mid) / 2;
-
-        let l1 = format!(
-            "{:total_width$}",
-            format!(
-                "{left_spaces}{root: ^root_width$}",
-                left_spaces = " ".repeat(left_mid + 1),
-                root_width = right_mid - left_mid - 1,
-            )
-        );
-
-        let line2 = format!(
-            "{:total_width$}",
-            format!(
-                "{}╭{:─^width$}╮",
-                " ".repeat(left_mid),
-                format!(" {op_sym} "),
-                width = right_mid - left_mid - 1,
-            )
-        )
-        .chars()
-        .collect::<Vec<_>>();
-
-        let max_lines = left_lines.len().max(right_lines.len());
-        let mut merged: Vec<String> = Vec::new();
-        for i in 0..max_lines {
-            let left_part = if i < left_lines.len() {
-                &left_lines[i]
-            } else {
-                ""
-            };
-            let right_part = if i < right_lines.len() {
-                &right_lines[i]
-            } else {
-                ""
-            };
-            merged.push(format!(
-                "{left_part:^left_width$}{gaps}{right_part:^right_width$}",
-                gaps = " ".repeat(gap),
-            ));
-        }
-
-        let mut result = Vec::new();
-        result.push(l1);
-        result.push(line2.iter().collect());
-        result.extend(merged);
-        (result, center)
-    }
     pub fn as_tree(&self) -> String {
-        format!("{}\n", self._as_tree().0.join("\n"))
-    }
-    fn _as_list(&self) -> Vec<String> {
-        if let Some(op) = &self.op {
-            let mut list = vec![];
-            if op.operands.0.op.is_some() {
-                let left_list = op.operands.0._as_list();
-                list.extend(left_list);
+        fn build(num: &Number) -> (Vec<String>, usize) {
+            let Some(op) = &num.op else {
+                return (vec![format!("{}", num.value)], 0);
+            };
+            let (left, right) = (&op.operands.0, &op.operands.1);
+            let op_sym = format!(" {} ", &op.operator);
+
+            let (left_lines, left_mid) = build(left);
+            let (right_lines, right_mid) = build(right);
+
+            let left_width = left_lines
+                .iter()
+                .map(|s| s.chars().count())
+                .max()
+                .unwrap_or(0);
+            let right_width = right_lines
+                .iter()
+                .map(|s| s.chars().count())
+                .max()
+                .unwrap_or(0);
+            let gap = 6;
+            let total_width = left_width + gap + right_width;
+
+            let root = format!("{}", num.value);
+
+            let right_mid = right_mid + gap + left_width;
+            let center = (left_mid + right_mid) / 2;
+
+            let l1 = format!(
+                "{:total_width$}",
+                format!(
+                    "{left_spaces}{root: ^root_width$}",
+                    left_spaces = " ".repeat(left_mid + 1),
+                    root_width = right_mid - left_mid - 1,
+                )
+            );
+
+            let line2 = format!(
+                "{:total_width$}",
+                format!(
+                    "{}╭{op_sym:─^width$}╮",
+                    " ".repeat(left_mid),
+                    width = right_mid - left_mid - 1,
+                )
+            )
+            .chars()
+            .collect::<Vec<_>>();
+
+            let max_lines = left_lines.len().max(right_lines.len());
+            let mut merged: Vec<String> = Vec::new();
+            for i in 0..max_lines {
+                let left_part = if i < left_lines.len() {
+                    &left_lines[i]
+                } else {
+                    ""
+                };
+                let right_part = if i < right_lines.len() {
+                    &right_lines[i]
+                } else {
+                    ""
+                };
+                merged.push(format!(
+                    "{left_part:^left_width$}{gaps}{right_part:^right_width$}",
+                    gaps = " ".repeat(gap),
+                ));
             }
-            if op.operands.1.op.is_some() {
-                let right_list = op.operands.1._as_list();
-                list.extend(right_list);
-            }
-            list.push(format!("{} = {}", op, self.value));
-            list
-        } else {
-            vec![format!("{}", self.value)]
+
+            let mut result = Vec::new();
+            result.push(l1);
+            result.push(line2.iter().collect());
+            result.extend(merged);
+            (result, center)
         }
+        build(self).0.join("\n")
     }
     pub fn as_list(&self) -> String {
-        format!("{}\n", self._as_list().join("\n"))
+        fn build(num: &Number) -> Vec<String> {
+            if let Some(op) = &num.op {
+                let mut list = vec![];
+                if op.operands.0.op.is_some() {
+                    let left_list = build(&op.operands.0);
+                    list.extend(left_list);
+                }
+                if op.operands.1.op.is_some() {
+                    let right_list = build(&op.operands.1);
+                    list.extend(right_list);
+                }
+                list.push(format!("{} = {}", op, num.value));
+                list
+            } else {
+                vec![format!("{}", num.value)]
+            }
+        }
+        build(self).join("\n")
     }
 }
 
 impl Display for Number {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for line in self._as_tree().0 {
-            writeln!(f, "{line}")?;
-        }
-        Ok(())
+        writeln!(f, "{}", self.as_tree())
     }
 }
 
@@ -235,12 +205,17 @@ impl Debug for Number {
     }
 }
 
-fn get_res(operation: &Operation) -> i32 {
-    match operation.operator {
-        Operator::Add => operation.operands.0.value + operation.operands.1.value,
-        Operator::Sub => operation.operands.0.value - operation.operands.1.value,
-        Operator::Div => operation.operands.0.value / operation.operands.1.value,
-        Operator::Mul => operation.operands.0.value * operation.operands.1.value,
+fn get_res(
+    Operation {
+        operator,
+        operands: (left, right),
+    }: &Operation,
+) -> i32 {
+    match operator {
+        Operator::Add => left.value + right.value,
+        Operator::Sub => left.value - right.value,
+        Operator::Div => left.value / right.value,
+        Operator::Mul => left.value * right.value,
     }
 }
 
@@ -301,88 +276,27 @@ pub fn _solve(
             }
         }
     }
+    let operators = [Operator::Add, Operator::Mul, Operator::Sub, Operator::Div];
     for (i1, n1) in numbers.iter().enumerate() {
-        let num1 = n1.value;
         for (i2, n2) in numbers.iter().enumerate().skip(i1 + 1) {
-            let num2 = n2.value;
-            let new_numbers = get_new_numbers(
-                i1,
-                i2,
-                Operation {
-                    operator: Operator::Add,
-                    operands: (n1.clone(), n2.clone()),
-                },
-                &numbers,
-                target,
-                scoreboard,
-                depth + 1,
-            );
-            _solve(target, new_numbers, scoreboard, depth + 1, visited);
-            if num1 != 1 && num2 != 1 {
-                let new_numbers = get_new_numbers(
-                    i1,
-                    i2,
-                    Operation {
-                        operator: Operator::Mul,
-                        operands: (n1.clone(), n2.clone()),
-                    },
-                    &numbers,
-                    target,
-                    scoreboard,
-                    depth + 1,
-                );
-                _solve(target, new_numbers, scoreboard, depth + 1, visited);
+            let (mut n1, mut n2) = (n1, n2);
+            if n1.value < n2.value {
+                std::mem::swap(&mut n1, &mut n2);
             }
-            if num1 >= num2 && num1 % num2 == 0 && num2 != 0 && num2 != 1 {
+            for &operator in &operators {
+                if (operator == Operator::Mul && (n1.value == 1 || n2.value == 1))
+                    || (operator == Operator::Div
+                        && (n1.value == 1 || n2.value == 1 || n1.value % n2.value != 0))
+                    || (operator == Operator::Sub && n1.value == n2.value)
+                {
+                    continue;
+                }
                 let new_numbers = get_new_numbers(
                     i1,
                     i2,
                     Operation {
-                        operator: Operator::Div,
+                        operator,
                         operands: (n1.clone(), n2.clone()),
-                    },
-                    &numbers,
-                    target,
-                    scoreboard,
-                    depth + 1,
-                );
-                _solve(target, new_numbers, scoreboard, depth + 1, visited);
-            } else if num2 > num1 && num2 % num1 == 0 && num1 != 0 && num1 != 1 {
-                let new_numbers = get_new_numbers(
-                    i1,
-                    i2,
-                    Operation {
-                        operator: Operator::Div,
-                        operands: (n2.clone(), n1.clone()),
-                    },
-                    &numbers,
-                    target,
-                    scoreboard,
-                    depth + 1,
-                );
-                _solve(target, new_numbers, scoreboard, depth + 1, visited);
-            }
-            if num1 > num2 {
-                let new_numbers = get_new_numbers(
-                    i1,
-                    i2,
-                    Operation {
-                        operator: Operator::Sub,
-                        operands: (n1.clone(), n2.clone()),
-                    },
-                    &numbers,
-                    target,
-                    scoreboard,
-                    depth + 1,
-                );
-                _solve(target, new_numbers, scoreboard, depth + 1, visited);
-            } else if num2 > num1 {
-                let new_numbers = get_new_numbers(
-                    i1,
-                    i2,
-                    Operation {
-                        operator: Operator::Sub,
-                        operands: (n2.clone(), n1.clone()),
                     },
                     &numbers,
                     target,

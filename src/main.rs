@@ -54,10 +54,10 @@ fn main() {
     for j in (0..show_max).rev() {
         match args.display_format {
             DisplayFormat::Tree => {
-                println!("{}", solutions[j].as_tree());
+                println!("{}\n", solutions[j].as_tree());
             }
             DisplayFormat::List => {
-                println!("{}", solutions[j].as_list());
+                println!("{}\n", solutions[j].as_list());
             }
         }
     }
