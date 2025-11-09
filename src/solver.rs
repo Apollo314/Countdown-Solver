@@ -130,8 +130,16 @@ impl Number {
         let (left_lines, left_mid) = left._as_tree();
         let (right_lines, right_mid) = right._as_tree();
 
-        let left_width = left_lines.iter().map(|s| s.len()).max().unwrap_or(0);
-        let right_width = right_lines.iter().map(|s| s.len()).max().unwrap_or(0);
+        let left_width = left_lines
+            .iter()
+            .map(|s| s.chars().count())
+            .max()
+            .unwrap_or(0);
+        let right_width = right_lines
+            .iter()
+            .map(|s| s.chars().count())
+            .max()
+            .unwrap_or(0);
         let gap = 6;
         let total_width = left_width + gap + right_width;
 
@@ -143,20 +151,23 @@ impl Number {
         let l1 = format!(
             "{:total_width$}",
             format!(
-                "{left_spaces}{root:_^root_width$}",
+                "{left_spaces}{root: ^root_width$}",
                 left_spaces = " ".repeat(left_mid + 1),
                 root_width = right_mid - left_mid - 1,
             )
         );
 
-        let mut line2: Vec<char> = vec![' '; total_width];
-        if left_mid < total_width {
-            line2[left_mid] = '/';
-        }
-        if right_mid < total_width {
-            line2[right_mid] = '\\';
-        }
-        line2[center] = op_sym;
+        let line2 = format!(
+            "{:total_width$}",
+            format!(
+                "{}╭{:─^width$}╮",
+                " ".repeat(left_mid),
+                format!(" {op_sym} "),
+                width = right_mid - left_mid - 1,
+            )
+        )
+        .chars()
+        .collect::<Vec<_>>();
 
         let max_lines = left_lines.len().max(right_lines.len());
         let mut merged: Vec<String> = Vec::new();
@@ -172,12 +183,8 @@ impl Number {
                 ""
             };
             merged.push(format!(
-                "{:^width_left$}{}{:^width_right$}",
-                left_part,
-                " ".repeat(gap),
-                right_part,
-                width_left = left_width,
-                width_right = right_width
+                "{left_part:^left_width$}{gaps}{right_part:^right_width$}",
+                gaps = " ".repeat(gap),
             ));
         }
 
