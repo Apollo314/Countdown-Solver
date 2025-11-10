@@ -31,37 +31,87 @@ impl Eq for Operation {}
 
 impl PartialEq for Operation {
     fn eq(&self, other: &Self) -> bool {
-        let a1 = &self.operands.0;
-        let a2 = &self.operands.1;
-        let b1 = &other.operands.0;
-        let b2 = &other.operands.1;
-        match self.operator {
-            Operator::Add | Operator::Mul => (a1 == b1 && a2 == b2) || (a1 == b2 && a2 == b1),
-            Operator::Sub | Operator::Div => a1 == b1 && a2 == b2,
+        let (mut left_blocks, mut right_blocks) = get_building_blocks(self);
+        left_blocks.sort_by_key(|n| n.value);
+        right_blocks.sort_by_key(|n| n.value);
+
+        let (mut left_blocks_other, mut right_blocks_other) = get_building_blocks(other);
+        left_blocks_other.sort_by_key(|n| n.value);
+        right_blocks_other.sort_by_key(|n| n.value);
+
+        left_blocks == left_blocks_other && right_blocks == right_blocks_other
+    }
+}
+
+pub fn get_building_blocks(op: &Operation) -> (Vec<&Number>, Vec<&Number>) {
+    fn is_similar(op: Operator, op2: Operator) -> bool {
+        matches!(
+            (op, op2),
+            (Operator::Add | Operator::Sub, Operator::Add | Operator::Sub)
+                | (Operator::Mul | Operator::Div, Operator::Mul | Operator::Div)
+        )
+    }
+    let (left, right) = &op.operands;
+
+    // for mul and div left blocks are numerator, for add and sub they are positives
+    let mut left_blocks = vec![];
+    // for mul and div left blocks are denominator, for add and sub they are negatives
+    let mut right_blocks = vec![];
+
+    if let Some(left_op) = &left.op
+        && is_similar(left_op.operator, op.operator)
+    {
+        let (left_left_blocks, left_right_blocks) = get_building_blocks(left_op);
+        left_blocks.extend(left_left_blocks);
+        right_blocks.extend(left_right_blocks);
+    } else {
+        left_blocks.push(left);
+    }
+    if let Some(right_op) = &right.op
+        && is_similar(right_op.operator, op.operator)
+    {
+        let (right_left_blocks, right_right_blocks) = get_building_blocks(right_op);
+        match &op.operator {
+            Operator::Mul | Operator::Add => {
+                left_blocks.extend(right_left_blocks);
+                right_blocks.extend(right_right_blocks);
+            }
+            Operator::Sub | Operator::Div => {
+                right_blocks.extend(right_left_blocks);
+                left_blocks.extend(right_right_blocks);
+            }
+        }
+    } else {
+        match &op.operator {
+            Operator::Mul | Operator::Add => {
+                left_blocks.push(right);
+            }
+            Operator::Sub | Operator::Div => {
+                right_blocks.push(right);
+            }
         }
     }
+
+    (left_blocks, right_blocks)
 }
 
 impl Hash for Operation {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.operator.hash(state);
-
-        let (left, right) = &self.operands;
-
         match self.operator {
-            Operator::Add | Operator::Mul => {
-                if left.value < right.value {
-                    left.hash(state);
-                    right.hash(state);
-                } else {
-                    right.hash(state);
-                    left.hash(state);
-                }
-            }
-            Operator::Sub | Operator::Div => {
-                left.hash(state);
-                right.hash(state);
-            }
+            Operator::Add | Operator::Sub => Operator::Add.hash(state),
+            Operator::Mul | Operator::Div => Operator::Mul.hash(state),
+        }
+
+        let (mut left_blocks, mut right_blocks) = get_building_blocks(self);
+        left_blocks.sort_by_key(|n| n.value);
+        right_blocks.sort_by_key(|n| n.value);
+
+        for num in left_blocks {
+            num.hash(state);
+        }
+
+        for num in right_blocks {
+            num.hash(state);
         }
     }
 }
@@ -196,7 +246,7 @@ impl Number {
 
 impl Display for Number {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", self.as_tree())
+        write!(f, "{}", self.value)
     }
 }
 
