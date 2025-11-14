@@ -21,6 +21,14 @@ pub struct Args {
 
     #[arg(short, long, required = false, default_value_t = 5)]
     max_displayed_solution: usize,
+
+    #[arg(
+        short = 's',
+        required = false,
+        default_value_t = false,
+        help = "for printing spaces with same width as the other characters for non-monospace fonts"
+    )]
+    use_blank_braille_for_space: bool,
 }
 
 #[derive(Copy, Clone, ValueEnum, Debug)]
@@ -59,9 +67,17 @@ fn main() {
     );
     for j in (0..show_max).rev() {
         if args.list {
-            println!("{}\n", solutions[j].as_list());
+            let mut list_string = solutions[j].as_list();
+            if args.use_blank_braille_for_space {
+                list_string = list_string.replace(" ", "⠀");
+            }
+            println!("{list_string}\n");
         } else {
-            println!("{}\n", solutions[j].as_tree());
+            let mut tree_string = solutions[j].as_tree();
+            if args.use_blank_braille_for_space {
+                tree_string = tree_string.replace(" ", "⠀");
+            }
+            println!("{tree_string}\n");
         }
     }
 }
