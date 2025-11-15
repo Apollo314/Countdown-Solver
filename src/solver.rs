@@ -32,12 +32,12 @@ impl Eq for Operation {}
 impl PartialEq for Operation {
     fn eq(&self, other: &Self) -> bool {
         let (mut left_blocks, mut right_blocks) = get_building_blocks(self);
-        left_blocks.sort_by_key(|n| n.value);
-        right_blocks.sort_by_key(|n| n.value);
+        left_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
+        right_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
 
         let (mut left_blocks_other, mut right_blocks_other) = get_building_blocks(other);
-        left_blocks_other.sort_by_key(|n| n.value);
-        right_blocks_other.sort_by_key(|n| n.value);
+        left_blocks_other.sort_unstable_by_key(|n| (n.value, n.depth));
+        right_blocks_other.sort_unstable_by_key(|n| (n.value, n.depth));
 
         left_blocks == left_blocks_other && right_blocks == right_blocks_other
     }
@@ -103,8 +103,8 @@ impl Hash for Operation {
         }
 
         let (mut left_blocks, mut right_blocks) = get_building_blocks(self);
-        left_blocks.sort_by_key(|n| n.value);
-        right_blocks.sort_by_key(|n| n.value);
+        left_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
+        right_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
 
         for num in left_blocks {
             num.hash(state);
