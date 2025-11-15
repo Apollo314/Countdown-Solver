@@ -39,7 +39,9 @@ impl PartialEq for Operation {
         left_blocks_other.sort_unstable_by_key(|n| (n.value, n.depth));
         right_blocks_other.sort_unstable_by_key(|n| (n.value, n.depth));
 
-        left_blocks == left_blocks_other && right_blocks == right_blocks_other
+        left_blocks == left_blocks_other
+            && right_blocks == right_blocks_other
+            && self.operator == other.operator
     }
 }
 
@@ -97,17 +99,17 @@ pub fn get_building_blocks(op: &Operation) -> (Vec<&Number>, Vec<&Number>) {
 
 impl Hash for Operation {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        match self.operator {
-            Operator::Add | Operator::Sub => Operator::Add.hash(state),
-            Operator::Mul | Operator::Div => Operator::Mul.hash(state),
-        }
-
         let (mut left_blocks, mut right_blocks) = get_building_blocks(self);
         left_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
         right_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
 
         for num in left_blocks {
             num.hash(state);
+        }
+
+        match self.operator {
+            Operator::Add | Operator::Sub => Operator::Add.hash(state),
+            Operator::Mul | Operator::Div => Operator::Mul.hash(state),
         }
 
         for num in right_blocks {
@@ -142,8 +144,6 @@ impl Debug for Operation {
         write!(f, "{self}")
     }
 }
-
-use std::fmt;
 
 impl Number {
     pub fn as_tree(&self) -> String {
@@ -245,7 +245,7 @@ impl Number {
 }
 
 impl Display for Number {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.value)
     }
 }
@@ -308,7 +308,7 @@ fn get_new_numbers(
 
 pub fn _solve(
     target: i32,
-    numbers: Rc<Vec<Number>>,
+    numbers: Vec<Number>,
     scoreboard: &mut Scoreboard,
     depth: i32,
     visited: &mut HashSet<u64>,
@@ -332,7 +332,6 @@ pub fn _solve(
         for num in numbers.iter() {
             if num.value == target {
                 scoreboard.entry(0).or_default().insert(num.clone());
-                return;
             }
         }
     }
@@ -355,7 +354,7 @@ pub fn _solve(
                     operator,
                     operands: (n1.clone(), n2.clone()),
                 });
-                let new_numbers = Rc::new(get_new_numbers(
+                let new_numbers = get_new_numbers(
                     i1,
                     i2,
                     operation.clone(),
@@ -363,7 +362,7 @@ pub fn _solve(
                     target,
                     scoreboard,
                     depth + 1,
-                ));
+                );
                 _solve(target, new_numbers, scoreboard, depth + 1, visited);
             }
         }
@@ -372,16 +371,14 @@ pub fn _solve(
 
 pub fn solve(target: i32, numbers: Vec<i32>) -> Scoreboard {
     let mut scoreboard = Scoreboard::new();
-    let numbers = Rc::new(
-        numbers
-            .iter()
-            .map(|num| Number {
-                value: *num,
-                op: None,
-                depth: 0,
-            })
-            .collect(),
-    );
+    let numbers = numbers
+        .iter()
+        .map(|num| Number {
+            value: *num,
+            op: None,
+            depth: 0,
+        })
+        .collect();
     let mut visited = HashSet::new();
     _solve(target, numbers, &mut scoreboard, 0, &mut visited);
     scoreboard
