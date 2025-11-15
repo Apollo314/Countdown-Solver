@@ -293,18 +293,13 @@ fn get_new_numbers(
         let solutions = scoreboard.entry(score).or_default();
         solutions.insert(num.clone());
     }
-    let mut new_numbers = numbers
-        .iter()
-        .enumerate()
-        .filter_map(|(i, num)| {
-            if i != i1 && i != i2 {
-                Some(num.clone())
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
+    let mut new_numbers = Vec::with_capacity(numbers.len() - 1);
     new_numbers.push(num);
+    for (i, n) in numbers.iter().enumerate() {
+        if i != i1 && i != i2 {
+            new_numbers.push(n.clone());
+        }
+    }
     new_numbers
 }
 
@@ -356,15 +351,8 @@ pub fn _solve(
                     operator,
                     operands: (n1.clone(), n2.clone()),
                 });
-                let new_numbers = get_new_numbers(
-                    i1,
-                    i2,
-                    operation.clone(),
-                    &numbers,
-                    target,
-                    scoreboard,
-                    depth + 1,
-                );
+                let new_numbers =
+                    get_new_numbers(i1, i2, operation, &numbers, target, scoreboard, depth + 1);
                 _solve(target, new_numbers, scoreboard, depth + 1, visited);
             }
         }
