@@ -55,7 +55,7 @@ pub fn get_building_blocks(op: &Operation) -> (Vec<&Number>, Vec<&Number>) {
 
     // for mul and div left blocks are numerator, for add and sub they are positives
     let mut left_blocks = vec![];
-    // for mul and div left blocks are denominator, for add and sub they are negatives
+    // for mul and div right blocks are denominator, for add and sub they are negatives
     let mut right_blocks = vec![];
 
     if let Some(left_op) = &left.op
