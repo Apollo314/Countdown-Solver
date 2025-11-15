@@ -320,7 +320,7 @@ pub fn _solve(
             num.hash(&mut s);
             s.finish()
         })
-        .reduce(|acc, hash| acc.wrapping_mul(hash))
+        .reduce(|acc, hash| acc ^ hash)
         .unwrap_or(0);
 
     if !visited.insert(key) {
