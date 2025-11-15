@@ -104,7 +104,8 @@ impl Hash for Operation {
         right_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
 
         for num in left_blocks {
-            num.hash(state);
+            num.value.hash(state);
+            num.depth.hash(state);
         }
 
         match self.operator {
@@ -113,7 +114,8 @@ impl Hash for Operation {
         }
 
         for num in right_blocks {
-            num.hash(state);
+            num.value.hash(state);
+            num.depth.hash(state);
         }
     }
 }
