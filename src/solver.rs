@@ -281,7 +281,7 @@ fn get_new_numbers(
     target: i32,
     scoreboard: &mut Scoreboard,
     depth: i32,
-) -> Vec<Number> {
+) -> (Vec<Number>, i32) {
     let res = get_res(&operation);
     let num_depth = operation.operands.0.depth + operation.operands.1.depth + 1;
     let num = Number {
@@ -301,7 +301,7 @@ fn get_new_numbers(
             new_numbers.push(n.clone());
         }
     }
-    new_numbers
+    (new_numbers, res)
 }
 
 pub fn _solve(
@@ -352,8 +352,12 @@ pub fn _solve(
                     operator,
                     operands: (n1.clone(), n2.clone()),
                 });
-                let new_numbers =
+                let (new_numbers, res) =
                     get_new_numbers(i1, i2, operation, &numbers, target, scoreboard, depth + 1);
+                if res == target {
+                    // you've reached the target. no point in recursively looking forward.
+                    continue;
+                }
                 _solve(target, new_numbers, scoreboard, depth + 1, visited);
             }
         }
