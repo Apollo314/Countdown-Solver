@@ -29,6 +29,14 @@ pub struct Number {
 
 impl Eq for Operation {}
 
+fn is_operator_similar(op: Operator, op2: Operator) -> bool {
+    matches!(
+        (op, op2),
+        (Operator::Add | Operator::Sub, Operator::Add | Operator::Sub)
+            | (Operator::Mul | Operator::Div, Operator::Mul | Operator::Div)
+    )
+}
+
 impl PartialEq for Operation {
     fn eq(&self, other: &Self) -> bool {
         let (mut left_blocks, mut right_blocks) = get_building_blocks(self);
@@ -39,20 +47,13 @@ impl PartialEq for Operation {
         left_blocks_other.sort_unstable_by_key(|n| (n.value, n.depth));
         right_blocks_other.sort_unstable_by_key(|n| (n.value, n.depth));
 
-        left_blocks == left_blocks_other
+        is_operator_similar(self.operator, other.operator)
+            && left_blocks == left_blocks_other
             && right_blocks == right_blocks_other
-            && self.operator == other.operator
     }
 }
 
 pub fn get_building_blocks(op: &Operation) -> (Vec<&Number>, Vec<&Number>) {
-    fn is_similar(op: Operator, op2: Operator) -> bool {
-        matches!(
-            (op, op2),
-            (Operator::Add | Operator::Sub, Operator::Add | Operator::Sub)
-                | (Operator::Mul | Operator::Div, Operator::Mul | Operator::Div)
-        )
-    }
     let (left, right) = &op.operands;
 
     // for mul and div left blocks are numerator, for add and sub they are positives
@@ -61,7 +62,7 @@ pub fn get_building_blocks(op: &Operation) -> (Vec<&Number>, Vec<&Number>) {
     let mut right_blocks = vec![];
 
     if let Some(left_op) = &left.op
-        && is_similar(left_op.operator, op.operator)
+        && is_operator_similar(left_op.operator, op.operator)
     {
         let (left_left_blocks, left_right_blocks) = get_building_blocks(left_op);
         left_blocks.extend(left_left_blocks);
@@ -70,7 +71,7 @@ pub fn get_building_blocks(op: &Operation) -> (Vec<&Number>, Vec<&Number>) {
         left_blocks.push(left);
     }
     if let Some(right_op) = &right.op
-        && is_similar(right_op.operator, op.operator)
+        && is_operator_similar(right_op.operator, op.operator)
     {
         let (right_left_blocks, right_right_blocks) = get_building_blocks(right_op);
         match &op.operator {
@@ -336,10 +337,6 @@ pub fn _solve(
     let operators = [Operator::Add, Operator::Mul, Operator::Sub, Operator::Div];
     for (i1, n1) in numbers.iter().enumerate() {
         for (i2, n2) in numbers.iter().enumerate().skip(i1 + 1) {
-            let (mut n1, mut n2) = (n1, n2);
-            if n1.value < n2.value {
-                std::mem::swap(&mut n1, &mut n2);
-            }
             for &operator in &operators {
                 if (operator == Operator::Mul && (n1.value == 1 || n2.value == 1))
                     || (operator == Operator::Div
@@ -366,8 +363,11 @@ pub fn _solve(
 
 pub fn solve(target: i32, numbers: Vec<i32>) -> Scoreboard {
     let mut scoreboard = Scoreboard::new();
+    let mut numbers = numbers;
+    numbers.sort();
     let numbers = numbers
         .iter()
+        .rev()
         .map(|num| Number {
             value: *num,
             op: None,
