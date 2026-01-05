@@ -151,7 +151,9 @@ impl Number {
     pub fn as_tree(&self) -> String {
         fn build(num: &Number) -> (Vec<String>, usize) {
             let Some(op) = &num.op else {
-                return (vec![format!("{}", num.value)], 0);
+                let leaf = format!("{}", num.value);
+                let leaflen = leaf.len();
+                return (vec![leaf], leaflen / 2);
             };
             let (left, right) = (&op.operands.0, &op.operands.1);
             let op_sym = format!(" {} ", &op.operator);
@@ -172,15 +174,14 @@ impl Number {
             let gap = 6;
             let total_width = left_width + gap + right_width;
 
-            let root = format!("{}", num.value);
-
             let right_mid = right_mid + gap + left_width;
             let center = (left_mid + right_mid) / 2;
 
             let l1 = format!(
                 "{:total_width$}",
                 format!(
-                    "{left_spaces}{root: ^root_width$}",
+                    "{left_spaces}{: ^root_width$}",
+                    num.value,
                     left_spaces = " ".repeat(left_mid + 1),
                     root_width = right_mid - left_mid - 1,
                 )
