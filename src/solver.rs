@@ -302,6 +302,7 @@ fn get_new_numbers(
             new_numbers.push(n.clone());
         }
     }
+    new_numbers.sort_by(|a, b| b.value.cmp(&a.value));
     (new_numbers, res)
 }
 
