@@ -5,10 +5,10 @@ mod solver;
 #[derive(Parser, Debug)]
 pub struct Args {
     #[arg(short, long, required = true, num_args(1..))]
-    numbers: Vec<i32>,
+    numbers: Vec<u32>,
 
     #[arg(short, long, required = true)]
-    target: i32,
+    target: u32,
 
     #[arg(
         short = 'l',

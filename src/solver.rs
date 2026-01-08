@@ -1,4 +1,5 @@
 use rustc_hash::FxHasher;
+use std::cell::OnceCell;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::{
@@ -14,17 +15,20 @@ pub enum Operator {
     Div,
 }
 
+#[allow(clippy::mutable_key_type)]
 #[derive(Clone)]
 pub struct Operation {
     operator: Operator,
     operands: (Number, Number),
+    cached_hash: OnceCell<u64>,
 }
 
+#[allow(clippy::mutable_key_type)]
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Number {
-    pub value: i32,
+    pub value: u32,
     op: Option<Rc<Operation>>,
-    pub depth: i32,
+    pub depth: u8,
 }
 
 impl Eq for Operation {}
@@ -39,6 +43,14 @@ fn is_operator_similar(op: Operator, op2: Operator) -> bool {
 
 impl PartialEq for Operation {
     fn eq(&self, other: &Self) -> bool {
+        if !is_operator_similar(self.operator, other.operator) {
+            return false;
+        }
+        if let (Some(h1), Some(h2)) = (self.cached_hash.get(), other.cached_hash.get())
+            && h1 != h2
+        {
+            return false;
+        }
         let (mut left_blocks, mut right_blocks) = get_building_blocks(self);
         left_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
         right_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
@@ -47,9 +59,7 @@ impl PartialEq for Operation {
         left_blocks_other.sort_unstable_by_key(|n| (n.value, n.depth));
         right_blocks_other.sort_unstable_by_key(|n| (n.value, n.depth));
 
-        is_operator_similar(self.operator, other.operator)
-            && left_blocks == left_blocks_other
-            && right_blocks == right_blocks_other
+        left_blocks == left_blocks_other && right_blocks == right_blocks_other
     }
 }
 
@@ -98,30 +108,47 @@ pub fn get_building_blocks(op: &Operation) -> (Vec<&Number>, Vec<&Number>) {
     (left_blocks, right_blocks)
 }
 
-impl Hash for Operation {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let (mut left_blocks, mut right_blocks) = get_building_blocks(self);
-        left_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
-        right_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
-
-        for num in left_blocks {
-            num.value.hash(state);
-            num.depth.hash(state);
-        }
-
-        match self.operator {
-            Operator::Add | Operator::Sub => Operator::Add.hash(state),
-            Operator::Mul | Operator::Div => Operator::Mul.hash(state),
-        }
-
-        for num in right_blocks {
-            num.value.hash(state);
-            num.depth.hash(state);
+impl Operation {
+    pub fn new(operator: Operator, a: Number, b: Number) -> Self {
+        Self {
+            operator,
+            operands: (a, b),
+            cached_hash: OnceCell::new(),
         }
     }
 }
 
-pub type Scoreboard = BTreeMap<i32, HashSet<Number>>;
+impl Hash for Operation {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let hash = *self.cached_hash.get_or_init(|| {
+            let mut hasher = FxHasher::default();
+
+            let (mut left_blocks, mut right_blocks) = get_building_blocks(self);
+            left_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
+            right_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
+
+            for num in left_blocks {
+                num.value.hash(&mut hasher);
+                num.depth.hash(&mut hasher);
+            }
+
+            match self.operator {
+                Operator::Add | Operator::Sub => Operator::Add.hash(&mut hasher),
+                Operator::Mul | Operator::Div => Operator::Mul.hash(&mut hasher),
+            }
+
+            for num in right_blocks {
+                num.value.hash(&mut hasher);
+                num.depth.hash(&mut hasher);
+            }
+
+            hasher.finish()
+        });
+        state.write_u64(hash);
+    }
+}
+
+pub type Scoreboard = BTreeMap<u32, HashSet<Number>>;
 
 impl Display for Operator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -264,8 +291,9 @@ fn get_res(
     Operation {
         operator,
         operands: (left, right),
+        cached_hash: _cached_hash,
     }: &Operation,
-) -> i32 {
+) -> u32 {
     match operator {
         Operator::Add => left.value + right.value,
         Operator::Sub => left.value - right.value,
@@ -279,10 +307,10 @@ fn get_new_numbers(
     i2: usize,
     operation: Rc<Operation>,
     numbers: &[Number],
-    target: i32,
+    target: u32,
     scoreboard: &mut Scoreboard,
-    depth: i32,
-) -> (Vec<Number>, i32) {
+    depth: u8,
+) -> (Vec<Number>, u32) {
     let res = get_res(&operation);
     let num_depth = operation.operands.0.depth + operation.operands.1.depth + 1;
     let num = Number {
@@ -291,7 +319,9 @@ fn get_new_numbers(
         depth: num_depth,
     };
     if depth == num_depth {
-        let score = (target - res).abs();
+        let score = target.abs_diff(res);
+
+        #[allow(clippy::mutable_key_type)]
         let solutions = scoreboard.entry(score).or_default();
         solutions.insert(num.clone());
     }
@@ -302,15 +332,14 @@ fn get_new_numbers(
             new_numbers.push(n.clone());
         }
     }
-    new_numbers.sort_by(|a, b| b.value.cmp(&a.value));
     (new_numbers, res)
 }
 
 pub fn _solve(
-    target: i32,
+    target: u32,
     numbers: Vec<Number>,
     scoreboard: &mut Scoreboard,
-    depth: i32,
+    depth: u8,
     visited: &mut HashSet<u64>,
 ) {
     let key = numbers
@@ -336,8 +365,15 @@ pub fn _solve(
         }
     }
     let operators = [Operator::Add, Operator::Mul, Operator::Sub, Operator::Div];
-    for (i1, n1) in numbers.iter().enumerate() {
+    for (i1, n1) in numbers.iter().enumerate().take(numbers.len() - 1) {
         for (i2, n2) in numbers.iter().enumerate().skip(i1 + 1) {
+            let (n1, n2) = {
+                if n1.value < n2.value {
+                    (n2, n1)
+                } else {
+                    (n1, n2)
+                }
+            };
             for &operator in &operators {
                 if (operator == Operator::Mul && (n1.value == 1 || n2.value == 1))
                     || (operator == Operator::Div
@@ -346,10 +382,7 @@ pub fn _solve(
                 {
                     continue;
                 }
-                let operation = Rc::new(Operation {
-                    operator,
-                    operands: (n1.clone(), n2.clone()),
-                });
+                let operation = Rc::new(Operation::new(operator, n1.clone(), n2.clone()));
                 let (new_numbers, res) =
                     get_new_numbers(i1, i2, operation, &numbers, target, scoreboard, depth + 1);
                 if res == target {
@@ -362,7 +395,7 @@ pub fn _solve(
     }
 }
 
-pub fn solve(target: i32, numbers: Vec<i32>) -> Scoreboard {
+pub fn solve(target: u32, numbers: Vec<u32>) -> Scoreboard {
     let mut scoreboard = Scoreboard::new();
     let mut numbers = numbers;
     numbers.sort();
