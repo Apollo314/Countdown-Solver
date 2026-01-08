@@ -15,6 +15,8 @@ pub enum Operator {
     Div,
 }
 
+const OPERATORS: [Operator; 4] = [Operator::Add, Operator::Mul, Operator::Sub, Operator::Div];
+
 #[allow(clippy::mutable_key_type)]
 #[derive(Clone)]
 pub struct Operation {
@@ -229,7 +231,7 @@ impl Number {
             let right_mid = right_mid + gap + left_width;
             let center = (left_mid + right_mid) / 2;
 
-            let l1 = format!(
+            let line1 = format!(
                 "{:total_width$}",
                 format!(
                     "{left_spaces}{: ^root_width$}",
@@ -270,7 +272,7 @@ impl Number {
             }
 
             let mut result = Vec::new();
-            result.push(l1);
+            result.push(line1);
             result.push(line2.iter().collect());
             result.extend(merged);
             (result, center)
@@ -383,7 +385,7 @@ pub fn _solve(
             scoreboard.insert_if_better_or_same(score, num.clone());
         }
     }
-    let operators = [Operator::Add, Operator::Mul, Operator::Sub, Operator::Div];
+
     for (i1, n1) in numbers.iter().enumerate().take(numbers.len() - 1) {
         for (i2, n2) in numbers.iter().enumerate().skip(i1 + 1) {
             let (n1, n2) = {
@@ -393,10 +395,9 @@ pub fn _solve(
                     (n1, n2)
                 }
             };
-            for &operator in &operators {
+            for &operator in &OPERATORS {
                 if (operator == Operator::Mul && (n1.value == 1 || n2.value == 1))
-                    || (operator == Operator::Div
-                        && (n1.value == 1 || n2.value == 1 || n1.value % n2.value != 0))
+                    || (operator == Operator::Div && (n2.value == 1 || n1.value % n2.value != 0))
                     || (operator == Operator::Sub && n1.value == n2.value)
                 {
                     continue;
@@ -404,11 +405,10 @@ pub fn _solve(
                 let operation = Rc::new(Operation::new(operator, n1.clone(), n2.clone()));
                 let (new_numbers, res) =
                     get_new_numbers(i1, i2, operation, &numbers, target, scoreboard, depth + 1);
-                if res == target {
-                    // you've reached the target. no point in recursively looking forward.
-                    continue;
+
+                if res != target && new_numbers.len() >= 2 {
+                    _solve(target, new_numbers, scoreboard, depth + 1, visited);
                 }
-                _solve(target, new_numbers, scoreboard, depth + 1, visited);
             }
         }
     }
