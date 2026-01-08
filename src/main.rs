@@ -52,12 +52,9 @@ impl Display for DisplayFormat {
 
 fn main() {
     let args = Args::parse();
-    let mut scoreboard = solver::solve(args.target, args.numbers);
-    let (distance, solutions) = scoreboard
-        .iter_mut()
-        .next()
-        .expect("there seems to be no solution");
-    let mut solutions = solutions.iter().collect::<Vec<_>>();
+    let scoreboard = solver::solve(args.target, args.numbers);
+    let mut solutions = scoreboard.best_solutions.iter().collect::<Vec<_>>();
+    let distance = scoreboard.best_score;
     solutions.sort_by_key(|num| num.depth);
     let show_max = args.max_displayed_solution.min(solutions.len());
     println!(

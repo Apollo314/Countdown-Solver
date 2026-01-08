@@ -3,7 +3,7 @@ use std::cell::OnceCell;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::HashSet,
     fmt::{Debug, Display},
 };
 
@@ -148,7 +148,31 @@ impl Hash for Operation {
     }
 }
 
-pub type Scoreboard = BTreeMap<u32, HashSet<Number>>;
+pub struct Scoreboard {
+    pub best_score: u32,
+    pub best_solutions: HashSet<Number>,
+}
+
+impl Scoreboard {
+    fn new() -> Self {
+        Self {
+            best_score: u32::MAX,
+            best_solutions: HashSet::new(),
+        }
+    }
+
+    fn insert_if_better_or_same(&mut self, score: u32, num: Number) -> bool {
+        if score < self.best_score {
+            self.best_score = score;
+            self.best_solutions = HashSet::new();
+            self.best_solutions.insert(num)
+        } else if score == self.best_score {
+            self.best_solutions.insert(num)
+        } else {
+            false
+        }
+    }
+}
 
 impl Display for Operator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -320,10 +344,7 @@ fn get_new_numbers(
     };
     if depth == num_depth {
         let score = target.abs_diff(res);
-
-        #[allow(clippy::mutable_key_type)]
-        let solutions = scoreboard.entry(score).or_default();
-        solutions.insert(num.clone());
+        scoreboard.insert_if_better_or_same(score, num.clone());
     }
     let mut new_numbers = Vec::with_capacity(numbers.len() - 1);
     new_numbers.push(num);
@@ -356,12 +377,10 @@ pub fn _solve(
         return;
     }
 
-    // if it just so happens that one of the numbers is the target.
     if depth == 0 {
         for num in numbers.iter() {
-            if num.value == target {
-                scoreboard.entry(0).or_default().insert(num.clone());
-            }
+            let score = target.abs_diff(num.value);
+            scoreboard.insert_if_better_or_same(score, num.clone());
         }
     }
     let operators = [Operator::Add, Operator::Mul, Operator::Sub, Operator::Div];
