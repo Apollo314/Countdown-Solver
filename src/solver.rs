@@ -1,9 +1,8 @@
-use rustc_hash::FxHasher;
+use rustc_hash::{FxHasher, FxHashSet};
 use std::cell::OnceCell;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::{
-    collections::HashSet,
     fmt::{Debug, Display},
 };
 
@@ -150,21 +149,21 @@ impl Hash for Operation {
 
 pub struct Scoreboard {
     pub best_score: u32,
-    pub best_solutions: HashSet<Number>,
+    pub best_solutions: FxHashSet<Number>,
 }
 
 impl Scoreboard {
     fn new() -> Self {
         Self {
             best_score: u32::MAX,
-            best_solutions: HashSet::new(),
+            best_solutions: FxHashSet::default(),
         }
     }
 
     fn insert_if_better_or_same(&mut self, score: u32, num: Number) -> bool {
         if score < self.best_score {
             self.best_score = score;
-            self.best_solutions = HashSet::new();
+            self.best_solutions = FxHashSet::default();
             self.best_solutions.insert(num)
         } else if score == self.best_score {
             self.best_solutions.insert(num)
@@ -374,7 +373,7 @@ pub fn _solve(
     numbers: Vec<Number>,
     scoreboard: &mut Scoreboard,
     depth: u8,
-    visited: &mut HashSet<u64>,
+    visited: &mut FxHashSet<u64>,
 ) {
     let key = {
         let mut key: u64 = 0;
@@ -428,7 +427,7 @@ pub fn solve(target: u32, numbers: Vec<u32>) -> Scoreboard {
     let mut numbers = numbers;
     numbers.sort();
     let numbers = numbers.iter().rev().map(|num| Number::new(*num)).collect();
-    let mut visited = HashSet::new();
+    let mut visited = FxHashSet::default();
     _solve(target, numbers, &mut scoreboard, 0, &mut visited);
     scoreboard
 }
