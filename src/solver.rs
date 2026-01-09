@@ -376,11 +376,13 @@ pub fn _solve(
     depth: u8,
     visited: &mut HashSet<u64>,
 ) {
-    let key = numbers
-        .iter()
-        .map(|num| get_hash(&num))
-        .reduce(|acc, hash| acc ^ hash)
-        .unwrap_or(0);
+    let key = {
+        let mut key: u64 = 0;
+        for num in &numbers {
+            key = key.wrapping_add(get_hash(num));
+        }
+        key
+    };
 
     if !visited.insert(key) {
         return;
