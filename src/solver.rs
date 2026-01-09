@@ -130,8 +130,7 @@ impl Hash for Operation {
             right_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
 
             for num in left_blocks {
-                num.value.hash(&mut hasher);
-                num.depth.hash(&mut hasher);
+                num.hash(&mut hasher);
             }
 
             match self.operator {
@@ -140,8 +139,7 @@ impl Hash for Operation {
             }
 
             for num in right_blocks {
-                num.value.hash(&mut hasher);
-                num.depth.hash(&mut hasher);
+                num.hash(&mut hasher);
             }
 
             hasher.finish()
@@ -202,6 +200,31 @@ impl Debug for Operation {
 }
 
 impl Number {
+    pub fn new(value: u32) -> Self {
+        Self {
+            value,
+            op: None,
+            depth: 0,
+        }
+    }
+
+    pub fn from_operation(operation: Rc<Operation>) -> Self {
+        let left = &operation.operands.0;
+        let right = &operation.operands.1;
+        let value = match operation.operator {
+            Operator::Add => left.value + right.value,
+            Operator::Sub => left.value - right.value,
+            Operator::Div => left.value / right.value,
+            Operator::Mul => left.value * right.value,
+        };
+        let depth = left.depth + right.depth + 1;
+        Number {
+            value,
+            op: Some(operation),
+            depth,
+        }
+    }
+
     pub fn as_tree(&self) -> String {
         fn build(num: &Number) -> (Vec<String>, usize) {
             let Some(op) = &num.op else {
@@ -313,21 +336,7 @@ impl Debug for Number {
     }
 }
 
-fn get_res(
-    Operation {
-        operator,
-        operands: (left, right),
-        cached_hash: _cached_hash,
-    }: &Operation,
-) -> u32 {
-    match operator {
-        Operator::Add => left.value + right.value,
-        Operator::Sub => left.value - right.value,
-        Operator::Div => left.value / right.value,
-        Operator::Mul => left.value * right.value,
-    }
-}
-
+#[inline(always)]
 fn get_new_numbers(
     i1: usize,
     i2: usize,
@@ -337,15 +346,10 @@ fn get_new_numbers(
     scoreboard: &mut Scoreboard,
     depth: u8,
 ) -> (Vec<Number>, u32) {
-    let res = get_res(&operation);
-    let num_depth = operation.operands.0.depth + operation.operands.1.depth + 1;
-    let num = Number {
-        value: res,
-        op: Some(operation),
-        depth: num_depth,
-    };
-    if depth == num_depth {
-        let score = target.abs_diff(res);
+    let num = Number::from_operation(operation);
+    let value = num.value;
+    if depth == num.depth {
+        let score = target.abs_diff(num.value);
         scoreboard.insert_if_better_or_same(score, num.clone());
     }
     let mut new_numbers = Vec::with_capacity(numbers.len() - 1);
@@ -355,7 +359,14 @@ fn get_new_numbers(
             new_numbers.push(n.clone());
         }
     }
-    (new_numbers, res)
+    (new_numbers, value)
+}
+
+#[inline(always)]
+fn get_hash<T: Hash + ?Sized>(thing: &T) -> u64 {
+    let mut s = FxHasher::default();
+    thing.hash(&mut s);
+    s.finish()
 }
 
 pub fn _solve(
@@ -367,11 +378,7 @@ pub fn _solve(
 ) {
     let key = numbers
         .iter()
-        .map(|num| {
-            let mut s = FxHasher::default();
-            num.hash(&mut s);
-            s.finish()
-        })
+        .map(|num| get_hash(&num))
         .reduce(|acc, hash| acc ^ hash)
         .unwrap_or(0);
 
@@ -418,16 +425,87 @@ pub fn solve(target: u32, numbers: Vec<u32>) -> Scoreboard {
     let mut scoreboard = Scoreboard::new();
     let mut numbers = numbers;
     numbers.sort();
-    let numbers = numbers
-        .iter()
-        .rev()
-        .map(|num| Number {
-            value: *num,
-            op: None,
-            depth: 0,
-        })
-        .collect();
+    let numbers = numbers.iter().rev().map(|num| Number::new(*num)).collect();
     let mut visited = HashSet::new();
     _solve(target, numbers, &mut scoreboard, 0, &mut visited);
     scoreboard
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn commutative_operations_result_the_same_hash_regardless_of_order() {
+        let n1 = Number::new(5);
+        let n2 = Number::new(10);
+
+        let op_add_1 = Operation::new(Operator::Add, n1.clone(), n2.clone());
+        let op_add_2 = Operation::new(Operator::Add, n2.clone(), n1.clone());
+
+        assert_eq!(
+            op_add_1, op_add_2,
+            "Addition should be equal regardless of order"
+        );
+        assert_eq!(
+            get_hash(&op_add_1),
+            get_hash(&op_add_2),
+            "Addition hashes should be identical regardless of order"
+        );
+
+        let op_mul_1 = Operation::new(Operator::Mul, n1.clone(), n2.clone());
+        let op_mul_2 = Operation::new(Operator::Mul, n2.clone(), n1.clone());
+
+        assert_eq!(
+            op_mul_1, op_mul_2,
+            "Multiplication should be equal regardless of order"
+        );
+        assert_eq!(
+            get_hash(&op_mul_1),
+            get_hash(&op_mul_2),
+            "Multiplication hashes should be identical regardless of order"
+        );
+    }
+
+    #[test]
+    fn similar_operators_result_equal_operations() {
+        // (10 - 2) + 3 = 11  ==  (10 + 3) - 2 = 11
+        let n1 = Number::new(10);
+        let n2 = Number::new(2);
+        let n3 = Number::new(3);
+
+        // (10 - 2) + 3 = 11
+        let op_sub = Rc::new(Operation::new(Operator::Sub, n1.clone(), n2.clone()));
+        let n = Number::from_operation(op_sub);
+        let op_final_1 = Operation::new(Operator::Add, n, n3.clone());
+
+        // (10 + 3) - 2 = 11
+        let op_add = Rc::new(Operation::new(Operator::Add, n1.clone(), n3.clone()));
+        let n = Number::from_operation(op_add);
+        let op_final_2 = Operation::new(Operator::Sub, n, n2.clone());
+
+        assert_eq!(
+            op_final_1, op_final_2,
+            "Mixed add/sub resulting in same blocks should be equal"
+        );
+    }
+
+    #[test]
+    fn two_numbers_are_not_the_same_when_the_way_deriving_them_is_different() {
+        // 2 + 2 = 4  !=  2 x 2 = 4
+        let n1 = Number::new(2);
+        let n2 = Number::new(2);
+
+        let op_add = Rc::new(Operation::new(Operator::Add, n1.clone(), n2.clone()));
+        let res1 = Number::from_operation(op_add);
+
+        let op_mul = Rc::new(Operation::new(Operator::Mul, n1.clone(), n1.clone()));
+
+        let res2 = Number::from_operation(op_mul);
+
+        assert_ne!(
+            res1, res2,
+            "Mixed add/sub resulting in same blocks should be equal"
+        );
+    }
 }
