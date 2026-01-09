@@ -1,14 +1,23 @@
 [package]
 name = "countdown"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 
 [dependencies]
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"], optional = true }
 rustc-hash = "2.1"
 
 [dev-dependencies]
 criterion = "0.8"
+
+[features]
+cli = ["dep:clap"]
+default = []
+
+[[bin]]
+name = "countdown"
+path = "src/main.rs"
+required-features = ["cli"]
 
 [[bench]]
 name = "my_bench"
