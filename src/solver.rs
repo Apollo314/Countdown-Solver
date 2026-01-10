@@ -1,10 +1,10 @@
-use rustc_hash::{FxHasher, FxHashSet};
+use rustc_hash::{FxHashSet, FxHasher};
 use std::cell::OnceCell;
+use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
-use std::{
-    fmt::{Debug, Display},
-};
+
+use crate::gcd::gcd;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Operator {
@@ -198,6 +198,42 @@ impl Debug for Operation {
     }
 }
 
+impl std::ops::Mul<Number> for Number {
+    type Output = Number;
+
+    fn mul(self, rhs: Number) -> Self::Output {
+        let operation = Operation::new(Operator::Mul, self, rhs);
+        Number::from_operation(Rc::new(operation))
+    }
+}
+
+impl std::ops::Div<Number> for Number {
+    type Output = Number;
+
+    fn div(self, rhs: Number) -> Self::Output {
+        let operation = Operation::new(Operator::Div, self, rhs);
+        Number::from_operation(Rc::new(operation))
+    }
+}
+
+impl std::ops::Add<Number> for Number {
+    type Output = Number;
+
+    fn add(self, rhs: Number) -> Self::Output {
+        let operation = Operation::new(Operator::Add, self, rhs);
+        Number::from_operation(Rc::new(operation))
+    }
+}
+
+impl std::ops::Sub<Number> for Number {
+    type Output = Number;
+
+    fn sub(self, rhs: Number) -> Self::Output {
+        let operation = Operation::new(Operator::Sub, self, rhs);
+        Number::from_operation(Rc::new(operation))
+    }
+}
+
 impl Number {
     pub fn new(value: u32) -> Self {
         Self {
@@ -224,6 +260,75 @@ impl Number {
         }
     }
 
+    /// Will put divisions before multiplications if possible
+    /// Instead of writing:
+    /// 75 x 103 = 7725
+    /// 7725 x 6 = 46350
+    /// 46350 ÷ 50 = 927
+    ///
+    /// We would write:
+    /// 75 x 6 = 450
+    /// 450 ÷ 50 = 9
+    /// 9 x 103 = 927
+    pub fn simplify(&self) -> Self {
+        let Some(op) = &self.op else {
+            return Self::new(self.value);
+        };
+
+        if let Operator::Add | Operator::Sub = op.operator {
+            let left = op.operands.0.simplify();
+            let right = op.operands.1.simplify();
+            let op = Operation::new(op.operator, left, right);
+            return Number::from_operation(Rc::new(op));
+        }
+
+        let (blocks_l, blocks_r) = get_building_blocks(op);
+
+        let mut blocks_l: Vec<Number> = blocks_l.into_iter().map(|n| n.simplify()).collect();
+
+        if blocks_r.is_empty() {
+            return self.clone();
+        }
+        let mut blocks_r: Vec<Number> = blocks_r.into_iter().map(|n| n.simplify()).collect();
+        blocks_r.sort_unstable_by_key(|n| n.value);
+
+        while let Some(right) = blocks_r.pop() {
+            let mut maybe_num: Option<Number> = None;
+            let mut target = right.value;
+            let mut left_idx = 0;
+            while left_idx < blocks_l.len() {
+                if blocks_l[left_idx].value.is_multiple_of(right.value) {
+                    maybe_num = Some(blocks_l.remove(left_idx));
+                    break;
+                } else {
+                    let common = gcd(blocks_l[left_idx].value, target);
+                    if common != 1 {
+                        let other_num = blocks_l.remove(left_idx);
+                        if let Some(num) = maybe_num {
+                            maybe_num = Some(num * other_num);
+                        } else {
+                            maybe_num = Some(other_num);
+                        }
+                        target /= common;
+                    } else {
+                        left_idx += 1;
+                    }
+                    if target == 1 {
+                        break;
+                    }
+                }
+            }
+            if let Some(num) = maybe_num {
+                blocks_l.push(num / right);
+            }
+        }
+
+        blocks_l
+            .into_iter()
+            .reduce(|n, acc| n * acc)
+            .expect("Simplified multiplication group is empty")
+    }
+
     pub fn as_tree(&self) -> String {
         fn build(num: &Number) -> (Vec<String>, usize) {
             let Some(op) = &num.op else {
@@ -247,7 +352,7 @@ impl Number {
                 .map(|s| s.chars().count())
                 .max()
                 .unwrap_or(0);
-            let gap = 6;
+            let gap = 4;
             let total_width = left_width + gap + right_width;
 
             let right_mid = right_mid + gap + left_width;
@@ -299,7 +404,7 @@ impl Number {
             result.extend(merged);
             (result, center)
         }
-        build(self).0.join("\n")
+        build(&self.simplify()).0.join("\n")
     }
     pub fn as_list(&self) -> String {
         fn build(num: &Number) -> Vec<String> {
@@ -319,7 +424,7 @@ impl Number {
                 vec![format!("{}", num.value)]
             }
         }
-        build(self).join("\n")
+        build(&self.simplify()).join("\n")
     }
 }
 

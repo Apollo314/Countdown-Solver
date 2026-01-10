@@ -1,6 +1,7 @@
 use clap::{Parser, ValueEnum};
 use std::fmt::Display;
 mod solver;
+mod gcd;
 
 #[derive(Parser, Debug)]
 pub struct Args {
