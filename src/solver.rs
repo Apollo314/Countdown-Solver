@@ -7,19 +7,123 @@ use std::rc::Rc;
 use crate::gcd::gcd;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum Operator {
+pub enum Op {
     Add,
     Sub,
     Mul,
     Div,
 }
 
-const OPERATORS: [Operator; 4] = [Operator::Add, Operator::Mul, Operator::Sub, Operator::Div];
+impl Display for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let operator_string = match self {
+            Op::Add => "+",
+            Op::Sub => "-",
+            Op::Mul => "x",
+            Op::Div => "÷",
+        };
+        write!(f, "{}", operator_string)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Step {
+    Number(u32),
+    Operation(Op),
+}
+
+#[derive(Debug)]
+pub struct Solver {
+    target: u32,
+    numbers: Vec<u32>,
+
+    stack: Vec<u32>,
+    history: Vec<Step>,
+
+    pub closest_diff: u32,
+    pub solutions: FxHashSet<Number>,
+}
+
+impl Solver {
+    pub fn new(target: u32, numbers: Vec<u32>) -> Self {
+        let stack = vec![0; numbers.len()];
+        let history = vec![Step::Number(0); numbers.len() * 2];
+
+        Self {
+            target,
+            numbers,
+            stack,
+            history,
+            closest_diff: u32::MAX,
+            solutions: FxHashSet::default(),
+        }
+    }
+
+    pub fn to_number_tree(&self, step_count: usize) -> Number {
+        let mut parts = Vec::with_capacity(step_count);
+        parts.extend_from_slice(&self.history[..step_count]);
+        Number::from_rpn(parts)
+    }
+
+    pub fn record_result(&mut self, current_val: u32, step_idx: usize) {
+        let diff = self.target.abs_diff(current_val);
+        if diff < self.closest_diff {
+            self.closest_diff = diff;
+            self.solutions.clear();
+            self.solutions.insert(self.to_number_tree(step_idx));
+        } else if diff == self.closest_diff {
+            self.solutions.insert(self.to_number_tree(step_idx));
+        }
+    }
+
+    pub fn solve(&mut self, stack_idx: usize, used_mask: usize, step_idx: usize) {
+        if stack_idx < 2 {
+            for i in 0..self.numbers.len() {
+                if (used_mask >> i) & 1 == 0 {
+                    self.stack[stack_idx] = self.numbers[i];
+                    self.history[step_idx] = Step::Number(self.numbers[i]);
+
+                    self.solve(stack_idx + 1, used_mask | (1 << i), step_idx + 1);
+                }
+            }
+        } else {
+            let b = self.stack[stack_idx - 1];
+            let a = self.stack[stack_idx - 2];
+
+            let mut apply_op = |op: Op, res: u32| {
+                self.stack[stack_idx - 2] = res;
+                self.history[step_idx] = Step::Operation(op);
+                self.record_result(res, step_idx + 1);
+                if self.target != res {
+                    self.solve(stack_idx - 1, used_mask, step_idx + 1);
+                }
+            };
+
+            if a > b {
+                apply_op(Op::Sub, a - b);
+            }
+
+            if a >= b {
+                apply_op(Op::Add, a + b);
+            }
+
+            if b > 1 && a.is_multiple_of(b) {
+                apply_op(Op::Div, a / b);
+            }
+
+            if a >= b && b != 1 {
+                apply_op(Op::Mul, a * b);
+            }
+
+            self.stack[stack_idx - 2] = a;
+        }
+    }
+}
 
 #[allow(clippy::mutable_key_type)]
 #[derive(Clone)]
 pub struct Operation {
-    operator: Operator,
+    operator: Op,
     operands: (Number, Number),
     cached_hash: OnceCell<u64>,
 }
@@ -34,11 +138,10 @@ pub struct Number {
 
 impl Eq for Operation {}
 
-fn is_operator_similar(op: Operator, op2: Operator) -> bool {
+fn is_operator_similar(op: Op, op2: Op) -> bool {
     matches!(
         (op, op2),
-        (Operator::Add | Operator::Sub, Operator::Add | Operator::Sub)
-            | (Operator::Mul | Operator::Div, Operator::Mul | Operator::Div)
+        (Op::Add | Op::Sub, Op::Add | Op::Sub) | (Op::Mul | Op::Div, Op::Mul | Op::Div)
     )
 }
 
@@ -86,21 +189,21 @@ pub fn get_building_blocks(op: &Operation) -> (Vec<&Number>, Vec<&Number>) {
     {
         let (right_left_blocks, right_right_blocks) = get_building_blocks(right_op);
         match &op.operator {
-            Operator::Mul | Operator::Add => {
+            Op::Mul | Op::Add => {
                 left_blocks.extend(right_left_blocks);
                 right_blocks.extend(right_right_blocks);
             }
-            Operator::Sub | Operator::Div => {
+            Op::Sub | Op::Div => {
                 right_blocks.extend(right_left_blocks);
                 left_blocks.extend(right_right_blocks);
             }
         }
     } else {
         match &op.operator {
-            Operator::Mul | Operator::Add => {
+            Op::Mul | Op::Add => {
                 left_blocks.push(right);
             }
-            Operator::Sub | Operator::Div => {
+            Op::Sub | Op::Div => {
                 right_blocks.push(right);
             }
         }
@@ -110,7 +213,7 @@ pub fn get_building_blocks(op: &Operation) -> (Vec<&Number>, Vec<&Number>) {
 }
 
 impl Operation {
-    pub fn new(operator: Operator, a: Number, b: Number) -> Self {
+    pub fn new(operator: Op, a: Number, b: Number) -> Self {
         Self {
             operator,
             operands: (a, b),
@@ -133,8 +236,8 @@ impl Hash for Operation {
             }
 
             match self.operator {
-                Operator::Add | Operator::Sub => Operator::Add.hash(&mut hasher),
-                Operator::Mul | Operator::Div => Operator::Mul.hash(&mut hasher),
+                Op::Add | Op::Sub => Op::Add.hash(&mut hasher),
+                Op::Mul | Op::Div => Op::Mul.hash(&mut hasher),
             }
 
             for num in right_blocks {
@@ -144,44 +247,6 @@ impl Hash for Operation {
             hasher.finish()
         });
         state.write_u64(hash);
-    }
-}
-
-pub struct Scoreboard {
-    pub best_score: u32,
-    pub best_solutions: FxHashSet<Number>,
-}
-
-impl Scoreboard {
-    fn new() -> Self {
-        Self {
-            best_score: u32::MAX,
-            best_solutions: FxHashSet::default(),
-        }
-    }
-
-    fn insert_if_better_or_same(&mut self, score: u32, num: Number) -> bool {
-        if score < self.best_score {
-            self.best_score = score;
-            self.best_solutions = FxHashSet::default();
-            self.best_solutions.insert(num)
-        } else if score == self.best_score {
-            self.best_solutions.insert(num)
-        } else {
-            false
-        }
-    }
-}
-
-impl Display for Operator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let operator_string = match self {
-            Operator::Add => "+",
-            Operator::Sub => "-",
-            Operator::Mul => "x",
-            Operator::Div => "÷",
-        };
-        write!(f, "{}", operator_string)
     }
 }
 
@@ -202,7 +267,7 @@ impl std::ops::Mul<Number> for Number {
     type Output = Number;
 
     fn mul(self, rhs: Number) -> Self::Output {
-        let operation = Operation::new(Operator::Mul, self, rhs);
+        let operation = Operation::new(Op::Mul, self, rhs);
         Number::from_operation(Rc::new(operation))
     }
 }
@@ -211,7 +276,7 @@ impl std::ops::Div<Number> for Number {
     type Output = Number;
 
     fn div(self, rhs: Number) -> Self::Output {
-        let operation = Operation::new(Operator::Div, self, rhs);
+        let operation = Operation::new(Op::Div, self, rhs);
         Number::from_operation(Rc::new(operation))
     }
 }
@@ -220,7 +285,7 @@ impl std::ops::Add<Number> for Number {
     type Output = Number;
 
     fn add(self, rhs: Number) -> Self::Output {
-        let operation = Operation::new(Operator::Add, self, rhs);
+        let operation = Operation::new(Op::Add, self, rhs);
         Number::from_operation(Rc::new(operation))
     }
 }
@@ -229,7 +294,7 @@ impl std::ops::Sub<Number> for Number {
     type Output = Number;
 
     fn sub(self, rhs: Number) -> Self::Output {
-        let operation = Operation::new(Operator::Sub, self, rhs);
+        let operation = Operation::new(Op::Sub, self, rhs);
         Number::from_operation(Rc::new(operation))
     }
 }
@@ -243,14 +308,32 @@ impl Number {
         }
     }
 
+    pub fn from_rpn(rpn: Vec<Step>) -> Self {
+        let mut stack = Vec::new();
+
+        for token in rpn {
+            match token {
+                Step::Number(n) => stack.push(Number::new(n)),
+                Step::Operation(op) => {
+                    let right = stack.pop().unwrap();
+                    let left = stack.pop().unwrap();
+                    stack.push(Number::from_operation(Rc::new(Operation::new(
+                        op, left, right,
+                    ))));
+                }
+            }
+        }
+        stack.pop().unwrap()
+    }
+
     pub fn from_operation(operation: Rc<Operation>) -> Self {
         let left = &operation.operands.0;
         let right = &operation.operands.1;
         let value = match operation.operator {
-            Operator::Add => left.value + right.value,
-            Operator::Sub => left.value - right.value,
-            Operator::Div => left.value / right.value,
-            Operator::Mul => left.value * right.value,
+            Op::Add => left.value + right.value,
+            Op::Sub => left.value - right.value,
+            Op::Div => left.value / right.value,
+            Op::Mul => left.value * right.value,
         };
         let depth = left.depth + right.depth + 1;
         Number {
@@ -275,7 +358,7 @@ impl Number {
             return Self::new(self.value);
         };
 
-        if let Operator::Add | Operator::Sub = op.operator {
+        if let Op::Add | Op::Sub = op.operator {
             let left = op.operands.0.simplify();
             let right = op.operands.1.simplify();
             let op = Operation::new(op.operator, left, right);
@@ -440,114 +523,29 @@ impl Debug for Number {
     }
 }
 
-#[inline(always)]
-fn get_new_numbers(
-    i1: usize,
-    i2: usize,
-    operation: Rc<Operation>,
-    numbers: &[Number],
-    target: u32,
-    scoreboard: &mut Scoreboard,
-    depth: u8,
-) -> (Vec<Number>, u32) {
-    let num = Number::from_operation(operation);
-    let value = num.value;
-    if depth == num.depth {
-        let score = target.abs_diff(num.value);
-        scoreboard.insert_if_better_or_same(score, num.clone());
-    }
-    let mut new_numbers = Vec::with_capacity(numbers.len() - 1);
-    new_numbers.push(num);
-    for (i, n) in numbers.iter().enumerate() {
-        if i != i1 && i != i2 {
-            new_numbers.push(n.clone());
-        }
-    }
-    (new_numbers, value)
-}
-
-#[inline(always)]
-fn get_hash<T: Hash + ?Sized>(thing: &T) -> u64 {
-    let mut s = FxHasher::default();
-    thing.hash(&mut s);
-    s.finish()
-}
-
-pub fn _solve(
-    target: u32,
-    numbers: Vec<Number>,
-    scoreboard: &mut Scoreboard,
-    depth: u8,
-    visited: &mut FxHashSet<u64>,
-) {
-    let key = {
-        let mut key: u64 = 0;
-        for num in &numbers {
-            key = key.wrapping_add(get_hash(num));
-        }
-        key
-    };
-
-    if !visited.insert(key) {
-        return;
-    }
-
-    if depth == 0 {
-        for num in numbers.iter() {
-            let score = target.abs_diff(num.value);
-            scoreboard.insert_if_better_or_same(score, num.clone());
-        }
-    }
-
-    for (i1, n1) in numbers.iter().enumerate().take(numbers.len() - 1) {
-        for (i2, n2) in numbers.iter().enumerate().skip(i1 + 1) {
-            let (n1, n2) = {
-                if n1.value < n2.value {
-                    (n2, n1)
-                } else {
-                    (n1, n2)
-                }
-            };
-            for &operator in &OPERATORS {
-                if (operator == Operator::Mul && (n1.value == 1 || n2.value == 1))
-                    || (operator == Operator::Div && (n2.value == 1 || n1.value % n2.value != 0))
-                    || (operator == Operator::Sub && n1.value == n2.value)
-                {
-                    continue;
-                }
-                let operation = Rc::new(Operation::new(operator, n1.clone(), n2.clone()));
-                let (new_numbers, res) =
-                    get_new_numbers(i1, i2, operation, &numbers, target, scoreboard, depth + 1);
-
-                if res != target && new_numbers.len() >= 2 {
-                    _solve(target, new_numbers, scoreboard, depth + 1, visited);
-                }
-            }
-        }
-    }
-}
-
-pub fn solve(target: u32, numbers: Vec<u32>) -> Scoreboard {
-    let mut scoreboard = Scoreboard::new();
-    let mut numbers = numbers;
-    numbers.sort();
-    let numbers = numbers.iter().rev().map(|num| Number::new(*num)).collect();
-    let mut visited = FxHashSet::default();
-    _solve(target, numbers, &mut scoreboard, 0, &mut visited);
-    scoreboard
+pub fn solve(target: u32, numbers: Vec<u32>) -> Solver {
+    let mut solver = Solver::new(target, numbers);
+    solver.solve(0, 0, 0);
+    solver
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
+    fn get_hash<T: Hash + ?Sized>(thing: &T) -> u64 {
+        let mut s = FxHasher::default();
+        thing.hash(&mut s);
+        s.finish()
+    }
+
     #[test]
     fn commutative_operations_result_the_same_hash_regardless_of_order() {
         let n1 = Number::new(5);
         let n2 = Number::new(10);
 
-        let op_add_1 = Operation::new(Operator::Add, n1.clone(), n2.clone());
-        let op_add_2 = Operation::new(Operator::Add, n2.clone(), n1.clone());
+        let op_add_1 = Operation::new(Op::Add, n1.clone(), n2.clone());
+        let op_add_2 = Operation::new(Op::Add, n2.clone(), n1.clone());
 
         assert_eq!(
             op_add_1, op_add_2,
@@ -559,8 +557,8 @@ mod test {
             "Addition hashes should be identical regardless of order"
         );
 
-        let op_mul_1 = Operation::new(Operator::Mul, n1.clone(), n2.clone());
-        let op_mul_2 = Operation::new(Operator::Mul, n2.clone(), n1.clone());
+        let op_mul_1 = Operation::new(Op::Mul, n1.clone(), n2.clone());
+        let op_mul_2 = Operation::new(Op::Mul, n2.clone(), n1.clone());
 
         assert_eq!(
             op_mul_1, op_mul_2,
@@ -581,14 +579,14 @@ mod test {
         let n3 = Number::new(3);
 
         // (10 - 2) + 3 = 11
-        let op_sub = Rc::new(Operation::new(Operator::Sub, n1.clone(), n2.clone()));
+        let op_sub = Rc::new(Operation::new(Op::Sub, n1.clone(), n2.clone()));
         let n = Number::from_operation(op_sub);
-        let op_final_1 = Operation::new(Operator::Add, n, n3.clone());
+        let op_final_1 = Operation::new(Op::Add, n, n3.clone());
 
         // (10 + 3) - 2 = 11
-        let op_add = Rc::new(Operation::new(Operator::Add, n1.clone(), n3.clone()));
+        let op_add = Rc::new(Operation::new(Op::Add, n1.clone(), n3.clone()));
         let n = Number::from_operation(op_add);
-        let op_final_2 = Operation::new(Operator::Sub, n, n2.clone());
+        let op_final_2 = Operation::new(Op::Sub, n, n2.clone());
 
         assert_eq!(
             op_final_1, op_final_2,
@@ -602,10 +600,10 @@ mod test {
         let n1 = Number::new(2);
         let n2 = Number::new(2);
 
-        let op_add = Rc::new(Operation::new(Operator::Add, n1.clone(), n2.clone()));
+        let op_add = Rc::new(Operation::new(Op::Add, n1.clone(), n2.clone()));
         let res1 = Number::from_operation(op_add);
 
-        let op_mul = Rc::new(Operation::new(Operator::Mul, n1.clone(), n1.clone()));
+        let op_mul = Rc::new(Operation::new(Op::Mul, n1.clone(), n1.clone()));
 
         let res2 = Number::from_operation(op_mul);
 
