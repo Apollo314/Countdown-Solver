@@ -7,19 +7,17 @@ use std::rc::Rc;
 use crate::gcd::gcd;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum Operator {
+pub enum Op {
     Add,
     Sub,
     Mul,
     Div,
 }
 
-const OPERATORS: [Operator; 4] = [Operator::Add, Operator::Mul, Operator::Sub, Operator::Div];
-
 #[allow(clippy::mutable_key_type)]
-#[derive(Clone)]
+#[derive(Clone, Eq)]
 pub struct Operation {
-    operator: Operator,
+    operator: Op,
     operands: (Number, Number),
     cached_hash: OnceCell<u64>,
 }
@@ -32,13 +30,10 @@ pub struct Number {
     pub depth: u8,
 }
 
-impl Eq for Operation {}
-
-fn is_operator_similar(op: Operator, op2: Operator) -> bool {
+fn is_operator_similar(op: Op, op2: Op) -> bool {
     matches!(
         (op, op2),
-        (Operator::Add | Operator::Sub, Operator::Add | Operator::Sub)
-            | (Operator::Mul | Operator::Div, Operator::Mul | Operator::Div)
+        (Op::Add | Op::Sub, Op::Add | Op::Sub) | (Op::Mul | Op::Div, Op::Mul | Op::Div)
     )
 }
 
@@ -86,21 +81,21 @@ pub fn get_building_blocks(op: &Operation) -> (Vec<&Number>, Vec<&Number>) {
     {
         let (right_left_blocks, right_right_blocks) = get_building_blocks(right_op);
         match &op.operator {
-            Operator::Mul | Operator::Add => {
+            Op::Mul | Op::Add => {
                 left_blocks.extend(right_left_blocks);
                 right_blocks.extend(right_right_blocks);
             }
-            Operator::Sub | Operator::Div => {
+            Op::Sub | Op::Div => {
                 right_blocks.extend(right_left_blocks);
                 left_blocks.extend(right_right_blocks);
             }
         }
     } else {
         match &op.operator {
-            Operator::Mul | Operator::Add => {
+            Op::Mul | Op::Add => {
                 left_blocks.push(right);
             }
-            Operator::Sub | Operator::Div => {
+            Op::Sub | Op::Div => {
                 right_blocks.push(right);
             }
         }
@@ -110,7 +105,7 @@ pub fn get_building_blocks(op: &Operation) -> (Vec<&Number>, Vec<&Number>) {
 }
 
 impl Operation {
-    pub fn new(operator: Operator, a: Number, b: Number) -> Self {
+    pub fn new(operator: Op, a: Number, b: Number) -> Self {
         Self {
             operator,
             operands: (a, b),
@@ -133,8 +128,8 @@ impl Hash for Operation {
             }
 
             match self.operator {
-                Operator::Add | Operator::Sub => Operator::Add.hash(&mut hasher),
-                Operator::Mul | Operator::Div => Operator::Mul.hash(&mut hasher),
+                Op::Add | Op::Sub => Op::Add.hash(&mut hasher),
+                Op::Mul | Op::Div => Op::Mul.hash(&mut hasher),
             }
 
             for num in right_blocks {
@@ -173,13 +168,13 @@ impl Scoreboard {
     }
 }
 
-impl Display for Operator {
+impl Display for Op {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let operator_string = match self {
-            Operator::Add => "+",
-            Operator::Sub => "-",
-            Operator::Mul => "x",
-            Operator::Div => "÷",
+            Op::Add => "+",
+            Op::Sub => "-",
+            Op::Mul => "x",
+            Op::Div => "÷",
         };
         write!(f, "{}", operator_string)
     }
@@ -199,38 +194,53 @@ impl Debug for Operation {
 }
 
 impl std::ops::Mul<Number> for Number {
-    type Output = Number;
+    type Output = Operation;
 
     fn mul(self, rhs: Number) -> Self::Output {
-        let operation = Operation::new(Operator::Mul, self, rhs);
-        Number::from_operation(Rc::new(operation))
+        Operation::new(Op::Mul, self, rhs)
     }
 }
 
 impl std::ops::Div<Number> for Number {
-    type Output = Number;
+    type Output = Operation;
 
     fn div(self, rhs: Number) -> Self::Output {
-        let operation = Operation::new(Operator::Div, self, rhs);
-        Number::from_operation(Rc::new(operation))
+        Operation::new(Op::Div, self, rhs)
     }
 }
 
 impl std::ops::Add<Number> for Number {
-    type Output = Number;
+    type Output = Operation;
 
     fn add(self, rhs: Number) -> Self::Output {
-        let operation = Operation::new(Operator::Add, self, rhs);
-        Number::from_operation(Rc::new(operation))
+        Operation::new(Op::Add, self, rhs)
     }
 }
 
 impl std::ops::Sub<Number> for Number {
-    type Output = Number;
+    type Output = Operation;
 
     fn sub(self, rhs: Number) -> Self::Output {
-        let operation = Operation::new(Operator::Sub, self, rhs);
-        Number::from_operation(Rc::new(operation))
+        Operation::new(Op::Sub, self, rhs)
+    }
+}
+
+impl From<Operation> for Number {
+    fn from(operation: Operation) -> Self {
+        let left = &operation.operands.0;
+        let right = &operation.operands.1;
+        let value = match operation.operator {
+            Op::Add => left.value + right.value,
+            Op::Sub => left.value - right.value,
+            Op::Div => left.value / right.value,
+            Op::Mul => left.value * right.value,
+        };
+        let depth = left.depth + right.depth + 1;
+        Number {
+            value,
+            op: Some(Rc::new(operation)),
+            depth,
+        }
     }
 }
 
@@ -240,23 +250,6 @@ impl Number {
             value,
             op: None,
             depth: 0,
-        }
-    }
-
-    pub fn from_operation(operation: Rc<Operation>) -> Self {
-        let left = &operation.operands.0;
-        let right = &operation.operands.1;
-        let value = match operation.operator {
-            Operator::Add => left.value + right.value,
-            Operator::Sub => left.value - right.value,
-            Operator::Div => left.value / right.value,
-            Operator::Mul => left.value * right.value,
-        };
-        let depth = left.depth + right.depth + 1;
-        Number {
-            value,
-            op: Some(operation),
-            depth,
         }
     }
 
@@ -275,11 +268,11 @@ impl Number {
             return Self::new(self.value);
         };
 
-        if let Operator::Add | Operator::Sub = op.operator {
+        if let Op::Add | Op::Sub = op.operator {
             let left = op.operands.0.simplify();
             let right = op.operands.1.simplify();
             let op = Operation::new(op.operator, left, right);
-            return Number::from_operation(Rc::new(op));
+            return Number::from(op);
         }
 
         let (blocks_l, blocks_r) = get_building_blocks(op);
@@ -305,7 +298,7 @@ impl Number {
                     if common != 1 {
                         let other_num = blocks_l.remove(left_idx);
                         if let Some(num) = maybe_num {
-                            maybe_num = Some(num * other_num);
+                            maybe_num = Some(Number::from(num * other_num));
                         } else {
                             maybe_num = Some(other_num);
                         }
@@ -319,13 +312,13 @@ impl Number {
                 }
             }
             if let Some(num) = maybe_num {
-                blocks_l.push(num / right);
+                blocks_l.push(Number::from(num / right));
             }
         }
 
         blocks_l
             .into_iter()
-            .reduce(|n, acc| n * acc)
+            .reduce(|n, acc| Number::from(n * acc))
             .expect("Simplified multiplication group is empty")
     }
 
@@ -444,13 +437,13 @@ impl Debug for Number {
 fn get_new_numbers(
     i1: usize,
     i2: usize,
-    operation: Rc<Operation>,
+    operation: Operation,
     numbers: &[Number],
     target: u32,
     scoreboard: &mut Scoreboard,
     depth: u8,
 ) -> (Vec<Number>, u32) {
-    let num = Number::from_operation(operation);
+    let num = Number::from(operation);
     let value = num.value;
     if depth == num.depth {
         let score = target.abs_diff(num.value);
@@ -508,20 +501,26 @@ pub fn _solve(
                     (n1, n2)
                 }
             };
-            for &operator in &OPERATORS {
-                if (operator == Operator::Mul && (n1.value == 1 || n2.value == 1))
-                    || (operator == Operator::Div && (n2.value == 1 || n1.value % n2.value != 0))
-                    || (operator == Operator::Sub && n1.value == n2.value)
-                {
-                    continue;
-                }
-                let operation = Rc::new(Operation::new(operator, n1.clone(), n2.clone()));
+            let mut apply_op = |operation: Operation| {
                 let (new_numbers, res) =
                     get_new_numbers(i1, i2, operation, &numbers, target, scoreboard, depth + 1);
 
                 if res != target && new_numbers.len() >= 2 {
                     _solve(target, new_numbers, scoreboard, depth + 1, visited);
                 }
+            };
+            apply_op(n1.clone() + n2.clone());
+
+            if n1.value != n2.value {
+                apply_op(n1.clone() - n2.clone())
+            }
+
+            if n2.value != 1 {
+                apply_op(n1.clone() * n2.clone());
+            }
+
+            if n2.value != 1 && n1.value.is_multiple_of(n2.value) {
+                apply_op(n1.clone() / n2.clone());
             }
         }
     }
@@ -546,8 +545,8 @@ mod test {
         let n1 = Number::new(5);
         let n2 = Number::new(10);
 
-        let op_add_1 = Operation::new(Operator::Add, n1.clone(), n2.clone());
-        let op_add_2 = Operation::new(Operator::Add, n2.clone(), n1.clone());
+        let op_add_1 = Operation::new(Op::Add, n1.clone(), n2.clone());
+        let op_add_2 = Operation::new(Op::Add, n2.clone(), n1.clone());
 
         assert_eq!(
             op_add_1, op_add_2,
@@ -559,8 +558,8 @@ mod test {
             "Addition hashes should be identical regardless of order"
         );
 
-        let op_mul_1 = Operation::new(Operator::Mul, n1.clone(), n2.clone());
-        let op_mul_2 = Operation::new(Operator::Mul, n2.clone(), n1.clone());
+        let op_mul_1 = Operation::new(Op::Mul, n1.clone(), n2.clone());
+        let op_mul_2 = Operation::new(Op::Mul, n2.clone(), n1.clone());
 
         assert_eq!(
             op_mul_1, op_mul_2,
@@ -581,14 +580,14 @@ mod test {
         let n3 = Number::new(3);
 
         // (10 - 2) + 3 = 11
-        let op_sub = Rc::new(Operation::new(Operator::Sub, n1.clone(), n2.clone()));
-        let n = Number::from_operation(op_sub);
-        let op_final_1 = Operation::new(Operator::Add, n, n3.clone());
+        let op_sub = Operation::new(Op::Sub, n1.clone(), n2.clone());
+        let n = Number::from(op_sub);
+        let op_final_1 = Operation::new(Op::Add, n, n3.clone());
 
         // (10 + 3) - 2 = 11
-        let op_add = Rc::new(Operation::new(Operator::Add, n1.clone(), n3.clone()));
-        let n = Number::from_operation(op_add);
-        let op_final_2 = Operation::new(Operator::Sub, n, n2.clone());
+        let op_add = Operation::new(Op::Add, n1.clone(), n3.clone());
+        let n = Number::from(op_add);
+        let op_final_2 = Operation::new(Op::Sub, n, n2.clone());
 
         assert_eq!(
             op_final_1, op_final_2,
@@ -602,12 +601,12 @@ mod test {
         let n1 = Number::new(2);
         let n2 = Number::new(2);
 
-        let op_add = Rc::new(Operation::new(Operator::Add, n1.clone(), n2.clone()));
-        let res1 = Number::from_operation(op_add);
+        let op_add = Operation::new(Op::Add, n1.clone(), n2.clone());
+        let res1 = Number::from(op_add);
 
-        let op_mul = Rc::new(Operation::new(Operator::Mul, n1.clone(), n1.clone()));
+        let op_mul = Operation::new(Op::Mul, n1.clone(), n1.clone());
 
-        let res2 = Number::from_operation(op_mul);
+        let res2 = Number::from(op_mul);
 
         assert_ne!(
             res1, res2,
