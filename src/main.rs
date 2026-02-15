@@ -1,7 +1,7 @@
 use clap::{Parser, ValueEnum};
 use std::fmt::Display;
-mod gcd;
 mod solver;
+mod gcd;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -53,10 +53,9 @@ impl Display for DisplayFormat {
 
 fn main() {
     let args = Args::parse();
-    let solver = solver::solve(args.target, args.numbers);
-
-    let mut solutions = solver.solutions.iter().collect::<Vec<_>>();
-    let distance = solver.closest_diff;
+    let scoreboard = solver::solve(args.target, args.numbers);
+    let mut solutions = scoreboard.best_solutions.iter().collect::<Vec<_>>();
+    let distance = scoreboard.best_score;
     solutions.sort_by_key(|num| num.depth);
     let show_max = args.max_displayed_solution.min(solutions.len());
     println!(
