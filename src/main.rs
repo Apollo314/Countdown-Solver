@@ -53,7 +53,8 @@ impl Display for DisplayFormat {
 
 fn main() {
     let args = Args::parse();
-    let scoreboard = solver::solve(args.target, args.numbers);
+    let mut scoreboard = solver::solve(args.target, args.numbers);
+    scoreboard.simplify_and_deduplicate();
     let mut solutions = scoreboard.best_solutions.iter().collect::<Vec<_>>();
     let distance = scoreboard.best_score;
     solutions.sort_by_key(|num| num.depth());

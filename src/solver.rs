@@ -1,5 +1,6 @@
 use rustc_hash::{FxHashSet, FxHasher};
 use std::cell::OnceCell;
+use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
@@ -165,6 +166,10 @@ impl Scoreboard {
             false
         }
     }
+
+    pub fn simplify_and_deduplicate(&mut self) {
+        self.best_solutions = self.best_solutions.iter().map(|n| n.simplify()).collect();
+    }
 }
 
 impl Display for Op {
@@ -246,73 +251,89 @@ impl Number {
         Self { value, op: None }
     }
 
-    /// Will put divisions before multiplications if possible
-    /// Instead of writing:
-    /// 75 x 103 = 7725
-    /// 7725 x 6 = 46350
-    /// 46350 ÷ 50 = 927
-    ///
-    /// We would write:
-    /// 75 x 6 = 450
-    /// 450 ÷ 50 = 9
-    /// 9 x 103 = 927
     pub fn simplify(&self) -> Self {
         let Some(op) = &self.op else {
-            return Self::new(self.value);
+            return self.clone();
         };
 
-        if let Op::Add | Op::Sub = op.operator {
-            let left = op.operands.0.simplify();
-            let right = op.operands.1.simplify();
-            let op = Operation::new(op.operator, left, right);
-            return Number::from(op);
-        }
-
-        let (blocks_l, blocks_r) = get_building_blocks(op);
+        let (blocks_l, blocks_r) = get_building_blocks(&op);
 
         let mut blocks_l: Vec<Number> = blocks_l.into_iter().map(|n| n.simplify()).collect();
-
-        if blocks_r.is_empty() {
-            return self.clone();
-        }
         let mut blocks_r: Vec<Number> = blocks_r.into_iter().map(|n| n.simplify()).collect();
         blocks_r.sort_unstable_by_key(|n| n.value);
 
-        while let Some(right) = blocks_r.pop() {
-            let mut maybe_num: Option<Number> = None;
-            let mut target = right.value;
-            let mut left_idx = 0;
-            while left_idx < blocks_l.len() {
-                if blocks_l[left_idx].value.is_multiple_of(right.value) {
-                    maybe_num = Some(blocks_l.remove(left_idx));
-                    break;
-                } else {
-                    let common = gcd(blocks_l[left_idx].value, target);
-                    if common != 1 {
-                        let other_num = blocks_l.remove(left_idx);
-                        if let Some(num) = maybe_num {
-                            maybe_num = Some(Number::from(num * other_num));
-                        } else {
-                            maybe_num = Some(other_num);
-                        }
-                        target /= common;
-                    } else {
-                        left_idx += 1;
-                    }
-                    if target == 1 {
-                        break;
+        // get rid of nonsensical operations like 3 * 2 / 2 = 3
+        if blocks_l.len() > 1 {
+            let mut counts: HashMap<&Number, usize> = HashMap::new();
+
+            for n in &blocks_r {
+                *counts.entry(n).or_insert(0) += 1;
+            }
+
+            blocks_l.retain(|n| {
+                if let Some(c) = counts.get_mut(n) {
+                    if *c > 0 {
+                        *c -= 1;
+                        return false;
                     }
                 }
-            }
-            if let Some(num) = maybe_num {
-                blocks_l.push(Number::from(num / right));
-            }
+                true
+            });
+
+            blocks_r = counts
+                .into_iter()
+                .flat_map(|(value, count)| std::iter::repeat(value.clone()).take(count))
+                .collect();
         }
 
-        blocks_l
-            .into_iter()
-            .reduce(|n, acc| Number::from(n * acc))
-            .expect("Simplified multiplication group is empty")
+        match op.operator {
+            Op::Add | Op::Sub => {
+                let left_sum = blocks_l
+                    .into_iter()
+                    .reduce(|acc, n| Number::from(acc + n))
+                    .expect("Left blocks empty in Add");
+                blocks_r
+                    .into_iter()
+                    .fold(left_sum, |acc, n| Number::from(acc - n))
+            }
+            Op::Mul | Op::Div => {
+                while let Some(right) = blocks_r.pop() {
+                    let mut maybe_num: Option<Number> = None;
+                    let mut target = right.value;
+                    let mut left_idx = 0;
+                    while left_idx < blocks_l.len() {
+                        if blocks_l[left_idx].value.is_multiple_of(right.value) {
+                            maybe_num = Some(blocks_l.remove(left_idx));
+                            break;
+                        } else {
+                            let common = gcd(blocks_l[left_idx].value, target);
+                            if common != 1 {
+                                let other_num = blocks_l.remove(left_idx);
+                                if let Some(num) = maybe_num {
+                                    maybe_num = Some(Number::from(num * other_num));
+                                } else {
+                                    maybe_num = Some(other_num);
+                                }
+                                target /= common;
+                            } else {
+                                left_idx += 1;
+                            }
+                            if target == 1 {
+                                break;
+                            }
+                        }
+                    }
+                    if let Some(num) = maybe_num {
+                        blocks_l.push(Number::from(num / right));
+                    }
+                }
+
+                blocks_l
+                    .into_iter()
+                    .reduce(|n, acc| Number::from(n * acc))
+                    .expect("Simplified multiplication group is empty")
+            }
+        }
     }
 
     pub fn as_tree(&self) -> String {
@@ -390,7 +411,7 @@ impl Number {
             result.extend(merged);
             (result, center)
         }
-        build(&self.simplify()).0.join("\n")
+        build(&self).0.join("\n")
     }
     pub fn depth(&self) -> u8 {
         fn helper(num: &Number) -> u8 {
@@ -420,7 +441,7 @@ impl Number {
                 vec![format!("{}", num.value)]
             }
         }
-        build(&self.simplify()).join("\n")
+        build(&self).join("\n")
     }
 }
 
