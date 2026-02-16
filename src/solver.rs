@@ -27,7 +27,6 @@ pub struct Operation {
 pub struct Number {
     pub value: u32,
     op: Option<Rc<Operation>>,
-    pub depth: u8,
 }
 
 fn is_operator_similar(op: Op, op2: Op) -> bool {
@@ -48,12 +47,12 @@ impl PartialEq for Operation {
             return false;
         }
         let (mut left_blocks, mut right_blocks) = get_building_blocks(self);
-        left_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
-        right_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
+        left_blocks.sort_unstable_by_key(|n| n.value);
+        right_blocks.sort_unstable_by_key(|n| n.value);
 
         let (mut left_blocks_other, mut right_blocks_other) = get_building_blocks(other);
-        left_blocks_other.sort_unstable_by_key(|n| (n.value, n.depth));
-        right_blocks_other.sort_unstable_by_key(|n| (n.value, n.depth));
+        left_blocks_other.sort_unstable_by_key(|n| n.value);
+        right_blocks_other.sort_unstable_by_key(|n| n.value);
 
         left_blocks == left_blocks_other && right_blocks == right_blocks_other
     }
@@ -120,8 +119,8 @@ impl Hash for Operation {
             let mut hasher = FxHasher::default();
 
             let (mut left_blocks, mut right_blocks) = get_building_blocks(self);
-            left_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
-            right_blocks.sort_unstable_by_key(|n| (n.value, n.depth));
+            left_blocks.sort_unstable_by_key(|n| n.value);
+            right_blocks.sort_unstable_by_key(|n| n.value);
 
             for num in left_blocks {
                 num.hash(&mut hasher);
@@ -235,22 +234,16 @@ impl From<Operation> for Number {
             Op::Div => left.value / right.value,
             Op::Mul => left.value * right.value,
         };
-        let depth = left.depth + right.depth + 1;
         Number {
             value,
             op: Some(Rc::new(operation)),
-            depth,
         }
     }
 }
 
 impl Number {
     pub fn new(value: u32) -> Self {
-        Self {
-            value,
-            op: None,
-            depth: 0,
-        }
+        Self { value, op: None }
     }
 
     /// Will put divisions before multiplications if possible
@@ -399,6 +392,16 @@ impl Number {
         }
         build(&self.simplify()).0.join("\n")
     }
+    pub fn depth(&self) -> u8 {
+        fn helper(num: &Number) -> u8 {
+            if let Some(op) = &num.op {
+                helper(&op.operands.0).max(helper(&op.operands.1)) + 1
+            } else {
+                1
+            }
+        }
+        helper(self)
+    }
     pub fn as_list(&self) -> String {
         fn build(num: &Number) -> Vec<String> {
             if let Some(op) = &num.op {
@@ -441,14 +444,11 @@ fn get_new_numbers(
     numbers: &[Number],
     target: u32,
     scoreboard: &mut Scoreboard,
-    depth: u8,
 ) -> (Vec<Number>, u32) {
     let num = Number::from(operation);
     let value = num.value;
-    if depth == num.depth {
-        let score = target.abs_diff(num.value);
-        scoreboard.insert_if_better_or_same(score, num.clone());
-    }
+    let score = target.abs_diff(num.value);
+    scoreboard.insert_if_better_or_same(score, num.clone());
     let mut new_numbers = Vec::with_capacity(numbers.len() - 1);
     new_numbers.push(num);
     for (i, n) in numbers.iter().enumerate() {
@@ -470,7 +470,6 @@ pub fn _solve(
     target: u32,
     numbers: Vec<Number>,
     scoreboard: &mut Scoreboard,
-    depth: u8,
     visited: &mut FxHashSet<u64>,
 ) {
     let key = {
@@ -485,13 +484,6 @@ pub fn _solve(
         return;
     }
 
-    if depth == 0 {
-        for num in numbers.iter() {
-            let score = target.abs_diff(num.value);
-            scoreboard.insert_if_better_or_same(score, num.clone());
-        }
-    }
-
     for (i1, n1) in numbers.iter().enumerate().take(numbers.len() - 1) {
         for (i2, n2) in numbers.iter().enumerate().skip(i1 + 1) {
             let (n1, n2) = {
@@ -503,10 +495,10 @@ pub fn _solve(
             };
             let mut apply_op = |operation: Operation| {
                 let (new_numbers, res) =
-                    get_new_numbers(i1, i2, operation, &numbers, target, scoreboard, depth + 1);
+                    get_new_numbers(i1, i2, operation, &numbers, target, scoreboard);
 
                 if res != target && new_numbers.len() >= 2 {
-                    _solve(target, new_numbers, scoreboard, depth + 1, visited);
+                    _solve(target, new_numbers, scoreboard, visited);
                 }
             };
             apply_op(n1.clone() + n2.clone());
@@ -530,9 +522,13 @@ pub fn solve(target: u32, numbers: Vec<u32>) -> Scoreboard {
     let mut scoreboard = Scoreboard::new();
     let mut numbers = numbers;
     numbers.sort();
-    let numbers = numbers.iter().rev().map(|num| Number::new(*num)).collect();
+    let numbers: Vec<Number> = numbers.iter().rev().map(|num| Number::new(*num)).collect();
     let mut visited = FxHashSet::default();
-    _solve(target, numbers, &mut scoreboard, 0, &mut visited);
+    for num in numbers.iter() {
+        let score = target.abs_diff(num.value);
+        scoreboard.insert_if_better_or_same(score, num.clone());
+    }
+    _solve(target, numbers, &mut scoreboard, &mut visited);
     scoreboard
 }
 

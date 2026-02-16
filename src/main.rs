@@ -56,7 +56,7 @@ fn main() {
     let scoreboard = solver::solve(args.target, args.numbers);
     let mut solutions = scoreboard.best_solutions.iter().collect::<Vec<_>>();
     let distance = scoreboard.best_score;
-    solutions.sort_by_key(|num| num.depth);
+    solutions.sort_by_key(|num| num.depth());
     let show_max = args.max_displayed_solution.min(solutions.len());
     println!(
         "for distance of {distance}, there are {} solutions, here are {}:",
