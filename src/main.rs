@@ -1,7 +1,7 @@
 use clap::{Parser, ValueEnum};
 use std::fmt::Display;
-mod solver;
 mod gcd;
+mod solver;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -54,29 +54,39 @@ impl Display for DisplayFormat {
 fn main() {
     let args = Args::parse();
     let mut scoreboard = solver::solve(args.target, args.numbers);
+
     scoreboard.simplify_and_deduplicate();
-    let mut solutions = scoreboard.best_solutions.iter().collect::<Vec<_>>();
-    let distance = scoreboard.best_score;
+
+    let mut solutions = scoreboard
+        .best_solutions
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|n| n.clone())
+        .collect::<Vec<_>>();
+
+    let distance = scoreboard
+        .best_score
+        .load(std::sync::atomic::Ordering::Relaxed);
+
     solutions.sort_by_key(|num| num.depth());
+
     let show_max = args.max_displayed_solution.min(solutions.len());
     println!(
         "for distance of {distance}, there are {} solutions, here are {}:",
         solutions.len(),
         show_max
     );
+
     for j in (0..show_max).rev() {
-        if args.list {
-            let mut list_string = solutions[j].as_list();
-            if args.use_blank_braille_for_space {
-                list_string = list_string.replace(" ", "⠀");
-            }
-            println!("{list_string}\n");
+        let mut output = if args.list {
+            solutions[j].as_list()
         } else {
-            let mut tree_string = solutions[j].as_tree();
-            if args.use_blank_braille_for_space {
-                tree_string = tree_string.replace(" ", "⠀");
-            }
-            println!("{tree_string}\n");
+            solutions[j].as_tree()
+        };
+        if args.use_blank_braille_for_space {
+            output = output.replace(" ", "⠀");
         }
+        println!("{output}\n");
     }
 }

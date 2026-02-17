@@ -3,28 +3,30 @@ name = "countdown"
 version = "0.4.1"
 edition = "2024"
 
-[dependencies]
-clap = { version = "4.5", features = ["derive"], optional = true }
-rustc-hash = "2.1"
-
-[dev-dependencies]
-criterion = "0.8"
-
-[features]
-cli = ["dep:clap"]
-default = []
-
 [[bin]]
 name = "countdown"
 path = "src/main.rs"
 required-features = ["cli"]
 
 [[bench]]
-name = "my_bench"
 harness = false
+name = "my_bench"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"], optional = true }
+dashmap = "6.1"
+rayon = "1.11"
+rustc-hash = "2.1"
+
+[dev-dependencies]
+criterion = "0.8"
+
+[features]
+default = []
+cli = ["dep:clap"]
 
 [profile.release]
 debug = false
-lto = true
 strip = true
+lto = true
 panic = "abort"

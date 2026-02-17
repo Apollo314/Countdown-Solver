@@ -1,9 +1,11 @@
-use rustc_hash::{FxHashSet, FxHasher};
-use std::cell::OnceCell;
+use dashmap::DashSet;
+use rayon::prelude::*;
+use rustc_hash::FxHasher;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::gcd::gcd;
 
@@ -15,19 +17,17 @@ pub enum Op {
     Div,
 }
 
-#[allow(clippy::mutable_key_type)]
 #[derive(Clone, Eq)]
 pub struct Operation {
     operator: Op,
     operands: (Number, Number),
-    cached_hash: OnceCell<u64>,
+    cached_hash: OnceLock<u64>,
 }
 
-#[allow(clippy::mutable_key_type)]
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Number {
     pub value: u32,
-    op: Option<Rc<Operation>>,
+    op: Option<Arc<Operation>>,
 }
 
 fn is_operator_similar(op: Op, op2: Op) -> bool {
@@ -109,7 +109,7 @@ impl Operation {
         Self {
             operator,
             operands: (a, b),
-            cached_hash: OnceCell::new(),
+            cached_hash: OnceLock::new(),
         }
     }
 }
@@ -143,32 +143,39 @@ impl Hash for Operation {
 }
 
 pub struct Scoreboard {
-    pub best_score: u32,
-    pub best_solutions: FxHashSet<Number>,
+    pub best_score: AtomicU32,
+    pub best_solutions: Mutex<DashSet<Number>>,
 }
 
 impl Scoreboard {
     fn new() -> Self {
         Self {
-            best_score: u32::MAX,
-            best_solutions: FxHashSet::default(),
+            best_score: AtomicU32::new(u32::MAX),
+            best_solutions: Mutex::new(DashSet::default()),
         }
     }
 
-    fn insert_if_better_or_same(&mut self, score: u32, num: Number) -> bool {
-        if score < self.best_score {
-            self.best_score = score;
-            self.best_solutions = FxHashSet::default();
-            self.best_solutions.insert(num)
-        } else if score == self.best_score {
-            self.best_solutions.insert(num)
-        } else {
-            false
+    fn insert_if_better_or_same(&self, score: u32, num: Number) -> bool {
+        let current_best = self.best_score.load(Ordering::Acquire);
+
+        if score <= current_best {
+            let solutions = self.best_solutions.lock().unwrap();
+            let actual_best = self.best_score.load(Ordering::Relaxed);
+            if score < actual_best {
+                self.best_score.store(score, Ordering::Release);
+                solutions.clear();
+                return solutions.insert(num);
+            } else if score == actual_best {
+                return solutions.insert(num);
+            }
         }
+        false
     }
 
     pub fn simplify_and_deduplicate(&mut self) {
-        self.best_solutions = self.best_solutions.iter().map(|n| n.simplify()).collect();
+        let solutions = self.best_solutions.get_mut().unwrap();
+        let simplified: DashSet<Number> = solutions.iter().map(|n| n.simplify()).collect();
+        *solutions = simplified;
     }
 }
 
@@ -241,7 +248,7 @@ impl From<Operation> for Number {
         };
         Number {
             value,
-            op: Some(Rc::new(operation)),
+            op: Some(Arc::new(operation)),
         }
     }
 }
@@ -464,12 +471,13 @@ fn get_new_numbers(
     operation: Operation,
     numbers: &[Number],
     target: u32,
-    scoreboard: &mut Scoreboard,
+    scoreboard: &Scoreboard,
 ) -> (Vec<Number>, u32) {
     let num = Number::from(operation);
     let value = num.value;
     let score = target.abs_diff(num.value);
     scoreboard.insert_if_better_or_same(score, num.clone());
+
     let mut new_numbers = Vec::with_capacity(numbers.len() - 1);
     new_numbers.push(num);
     for (i, n) in numbers.iter().enumerate() {
@@ -487,12 +495,7 @@ fn get_hash<T: Hash + ?Sized>(thing: &T) -> u64 {
     s.finish()
 }
 
-pub fn _solve(
-    target: u32,
-    numbers: Vec<Number>,
-    scoreboard: &mut Scoreboard,
-    visited: &mut FxHashSet<u64>,
-) {
+pub fn _solve(target: u32, numbers: Vec<Number>, scoreboard: &Scoreboard, visited: &DashSet<u64>) {
     let key = {
         let mut key: u64 = 0;
         for num in &numbers {
@@ -505,51 +508,69 @@ pub fn _solve(
         return;
     }
 
-    for (i1, n1) in numbers.iter().enumerate().take(numbers.len() - 1) {
-        for (i2, n2) in numbers.iter().enumerate().skip(i1 + 1) {
-            let (n1, n2) = {
-                if n1.value < n2.value {
-                    (n2, n1)
-                } else {
-                    (n1, n2)
-                }
-            };
-            let mut apply_op = |operation: Operation| {
-                let (new_numbers, res) =
-                    get_new_numbers(i1, i2, operation, &numbers, target, scoreboard);
-
-                if res != target && new_numbers.len() >= 2 {
-                    _solve(target, new_numbers, scoreboard, visited);
-                }
-            };
-            apply_op(n1.clone() + n2.clone());
-
-            if n1.value != n2.value {
-                apply_op(n1.clone() - n2.clone())
+    if numbers.len() >= 4 {
+        numbers.par_iter().enumerate().for_each(|(i1, n1)| {
+            for (i2, n2) in numbers.iter().enumerate().skip(i1 + 1) {
+                run_ops(i1, i2, n1, n2, target, &numbers, scoreboard, visited);
             }
-
-            if n2.value != 1 {
-                apply_op(n1.clone() * n2.clone());
-            }
-
-            if n2.value != 1 && n1.value.is_multiple_of(n2.value) {
-                apply_op(n1.clone() / n2.clone());
+        });
+    } else {
+        for (i1, n1) in numbers.iter().enumerate().take(numbers.len() - 1) {
+            for (i2, n2) in numbers.iter().enumerate().skip(i1 + 1) {
+                run_ops(i1, i2, n1, n2, target, &numbers, scoreboard, visited);
             }
         }
     }
 }
 
+fn run_ops(
+    i1: usize,
+    i2: usize,
+    n1: &Number,
+    n2: &Number,
+    target: u32,
+    numbers: &[Number],
+    scoreboard: &Scoreboard,
+    visited: &DashSet<u64>,
+) {
+    let (n1, n2) = if n1.value < n2.value {
+        (n2, n1)
+    } else {
+        (n1, n2)
+    };
+
+    let apply_op = |operation: Operation| {
+        let (new_numbers, res) = get_new_numbers(i1, i2, operation, numbers, target, scoreboard);
+        if res != target && new_numbers.len() >= 2 {
+            _solve(target, new_numbers, scoreboard, visited);
+        }
+    };
+
+    apply_op(n1.clone() + n2.clone());
+    if n1.value != n2.value {
+        apply_op(n1.clone() - n2.clone());
+    }
+    if n2.value != 1 {
+        apply_op(n1.clone() * n2.clone());
+    }
+    if n2.value != 1 && n1.value % n2.value == 0 {
+        apply_op(n1.clone() / n2.clone());
+    }
+}
+
 pub fn solve(target: u32, numbers: Vec<u32>) -> Scoreboard {
-    let mut scoreboard = Scoreboard::new();
-    let mut numbers = numbers;
-    numbers.sort();
-    let numbers: Vec<Number> = numbers.iter().rev().map(|num| Number::new(*num)).collect();
-    let mut visited = FxHashSet::default();
-    for num in numbers.iter() {
+    let scoreboard = Scoreboard::new();
+    let mut numbers: Vec<Number> = numbers.into_iter().map(Number::new).collect();
+    numbers.sort_by_key(|n| std::cmp::Reverse(n.value));
+
+    let visited = DashSet::default();
+
+    for num in &numbers {
         let score = target.abs_diff(num.value);
         scoreboard.insert_if_better_or_same(score, num.clone());
     }
-    _solve(target, numbers, &mut scoreboard, &mut visited);
+
+    _solve(target, numbers, &scoreboard, &visited);
     scoreboard
 }
 
