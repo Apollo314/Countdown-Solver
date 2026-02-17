@@ -1,7 +1,7 @@
 use clap::{Parser, ValueEnum};
 use std::fmt::Display;
-mod solver;
 mod gcd;
+mod solver;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -57,7 +57,7 @@ fn main() {
     scoreboard.simplify_and_deduplicate();
     let mut solutions = scoreboard.best_solutions.iter().collect::<Vec<_>>();
     let distance = scoreboard.best_score;
-    solutions.sort_by_key(|num| num.depth());
+    solutions.sort_by_key(|num| (num.op_count(), num.depth()));
     let show_max = args.max_displayed_solution.min(solutions.len());
     println!(
         "for distance of {distance}, there are {} solutions, here are {}:",
