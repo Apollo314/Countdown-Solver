@@ -304,41 +304,45 @@ impl Number {
                     .fold(left_sum, |acc, n| Number::from(acc - n))
             }
             Op::Mul | Op::Div => {
+                let mut result: Option<Number> = None;
                 while let Some(right) = blocks_r.pop() {
-                    let mut maybe_num: Option<Number> = None;
                     let mut target = right.value;
-                    let mut left_idx = 0;
-                    while left_idx < blocks_l.len() {
-                        if blocks_l[left_idx].value.is_multiple_of(right.value) {
-                            maybe_num = Some(blocks_l.remove(left_idx));
-                            break;
-                        } else {
-                            let common = gcd(blocks_l[left_idx].value, target);
-                            if common != 1 {
-                                let other_num = blocks_l.remove(left_idx);
-                                if let Some(num) = maybe_num {
-                                    maybe_num = Some(Number::from(num * other_num));
-                                } else {
-                                    maybe_num = Some(other_num);
-                                }
-                                target /= common;
+                    let mut i = 0;
+                    while i < blocks_l.len() {
+                        let common = gcd(blocks_l[i].value, target);
+
+                        if common > 1 {
+                            let num = blocks_l.remove(i);
+                            target /= common;
+                            if let Some(result_inner) = result {
+                                result = Some(Number::from(result_inner * num));
                             } else {
-                                left_idx += 1;
+                                result = Some(num);
                             }
-                            if target == 1 {
-                                break;
+
+                            if let Some(result_inner) = &result {
+                                if result_inner.value.is_multiple_of(right.value) {
+                                    result =
+                                        Some(Number::from(result_inner.clone() / right.clone()));
+                                    break;
+                                }
                             }
+                        } else {
+                            i += 1;
                         }
-                    }
-                    if let Some(num) = maybe_num {
-                        blocks_l.push(Number::from(num / right));
                     }
                 }
 
-                blocks_l
-                    .into_iter()
-                    .reduce(|n, acc| Number::from(n * acc))
-                    .expect("Simplified multiplication group is empty")
+                if let Some(result) = result {
+                    blocks_l
+                        .into_iter()
+                        .fold(result, |acc, n| Number::from(acc * n))
+                } else {
+                    blocks_l
+                        .into_iter()
+                        .reduce(|n, acc| Number::from(n * acc))
+                        .unwrap()
+                }
             }
         }
     }
