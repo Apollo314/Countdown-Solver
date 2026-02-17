@@ -434,6 +434,16 @@ impl Number {
         }
         helper(self)
     }
+    pub fn op_count(&self) -> u8 {
+        fn helper(num: &Number) -> u8 {
+            if let Some(op) = &num.op {
+                helper(&op.operands.0) + helper(&op.operands.1) + 1
+            } else {
+                1
+            }
+        }
+        helper(self)
+    }
     pub fn as_list(&self) -> String {
         fn build(num: &Number) -> Vec<String> {
             if let Some(op) = &num.op {

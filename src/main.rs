@@ -56,7 +56,6 @@ fn main() {
     let mut scoreboard = solver::solve(args.target, args.numbers);
 
     scoreboard.simplify_and_deduplicate();
-
     let mut solutions = scoreboard
         .best_solutions
         .lock()
@@ -69,7 +68,7 @@ fn main() {
         .best_score
         .load(std::sync::atomic::Ordering::Relaxed);
 
-    solutions.sort_by_key(|num| num.depth());
+    solutions.sort_by_key(|num| (num.op_count(), num.depth()));
 
     let show_max = args.max_displayed_solution.min(solutions.len());
     println!(
